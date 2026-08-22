@@ -81,8 +81,6 @@ struct GameView: View {
     /// After the card, the King gets the stage to himself while he climbs out
     /// of the sand. The first round only opens when that is finished.
     @State private var playsKingEntrance = false
-    @State private var showsStreakBanner = false
-    @State private var streakBannerToken = 0
     /// Measured from the real HUD layout so the flying currency glyph can land
     /// pixel-for-pixel over its stationary twin on every device and score width.
     @State private var scoreIconCenter: CGPoint?
@@ -331,25 +329,8 @@ struct GameView: View {
                     .allowsHitTesting(false)
                     .id(tutorial.step)
             }
-
-            if showsStreakBanner {
-                StreakBoostBanner(character: character, isPad: isPad)
-                    // Steps down below the walkthrough's own note for as long as
-                    // the run keeps that strip reserved — the streak starts on a
-                    // tutorial step, and the note is still there when it does.
-                    .padding(.top, tutorialMessageTop(topInset: topInset)
-                             + (reservesTutorialMessage
-                                ? TutorialMessageCard.height(isPad: isPad) + (isPad ? 12 : 8)
-                                : 0))
-                    .transition(.scale(scale: 0.65).combined(with: .opacity))
-                    .allowsHitTesting(false)
-            }
         }
         .ignoresSafeArea()
-        .onChange(of: model.streakAnnouncementID) { id in
-            guard id > 0 else { return }
-            showStreakBanner(for: id)
-        }
         .onPreferenceChange(ScoreIconCenterPreferenceKey.self) { center in
             scoreIconCenter = center
         }
@@ -375,19 +356,6 @@ struct GameView: View {
     /// column's height.
     private func tutorialMessageTop(topInset: CGFloat) -> CGFloat {
         topInset + (isPad ? 12 : 6) + hudColumnHeight + (isPad ? 10 : 8)
-    }
-
-    private func showStreakBanner(for token: Int) {
-        streakBannerToken = token
-        withAnimation(.spring(response: 0.38, dampingFraction: 0.68)) {
-            showsStreakBanner = true
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
-            guard streakBannerToken == token else { return }
-            withAnimation(.easeOut(duration: 0.25)) {
-                showsStreakBanner = false
-            }
-        }
     }
 
     private func finishLevelCompletion() {
@@ -497,55 +465,6 @@ struct ScoreIconCenterPreferenceKey: PreferenceKey {
 
     static func reduce(value: inout CGPoint?, nextValue: () -> CGPoint?) {
         value = nextValue() ?? value
-    }
-}
-
-struct StreakBoostBanner: View {
-    let character: AnimalCharacter
-    let isPad: Bool
-    @Environment(\.layoutDirection) private var layoutDirection
-
-    private var isRightToLeft: Bool { layoutDirection == .rightToLeft }
-
-    var body: some View {
-        HStack(spacing: isPad ? 10 : 7) {
-            Image(systemName: "flame.fill")
-            VStack(spacing: 0) {
-                Text("game.streakBoost.title")
-                    .font(.system(size: isPad ? 22 : 17, weight: .black, design: .rounded))
-                Text("game.streakBoost.subtitle")
-                    .font(.system(size: isPad ? 14 : 11, weight: .bold, design: .rounded))
-                    .opacity(0.82)
-            }
-            Image(systemName: "forward.fill")
-                // SF Symbols leaves the media-transport arrows pointing right
-                // in every language, which is right for a play button and wrong
-                // here: this one is not a control but a picture of going fast,
-                // and it sits at the trailing edge. Unmirrored it points back
-                // into the text it is meant to lead away from.
-                .scaleEffect(x: isRightToLeft ? -1 : 1, y: 1)
-        }
-        .foregroundStyle(character.deepColor)
-        .padding(.horizontal, isPad ? 20 : 15)
-        .padding(.vertical, isPad ? 12 : 9)
-        .background {
-            Capsule()
-                .fill(.white.opacity(0.92))
-                .overlay {
-                    Capsule().stroke(.white, lineWidth: 2)
-                }
-                .shadow(color: character.deepColor.opacity(0.22), radius: 9, y: 5)
-        }
-        .overlay(alignment: .bottomLeading) {
-            Circle()
-                .fill(.white.opacity(0.8))
-                .frame(width: 10, height: 10)
-                // `bottomLeading` follows the reading direction but `offset` does
-                // not, so the same positive x that tucks this bubble under the
-                // capsule in English pushes it off the other side in Arabic.
-                .offset(x: isRightToLeft ? -18 : 18, y: 10)
-        }
-        .accessibilityElement(children: .combine)
     }
 }
 

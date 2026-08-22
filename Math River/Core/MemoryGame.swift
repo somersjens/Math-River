@@ -136,6 +136,11 @@ nonisolated public final class MemoryGame {
     /// other across the same wave — is one mistake, not three.
     private var hasBreachedRound = false
 
+    /// Honey pots already taken this sum. A wrong jar is spent but the round
+    /// stays open, so the same pot cannot score twice while the right one
+    /// can still be caught.
+    private var consumedOptionIDs: Set<UUID> = []
+
     /// The walkthrough's first steps let a mistake be made without paying for
     /// it. Every other run, and every later step, leaves this on — the rule
     /// itself is unchanged, it is only waived while the player is being shown
@@ -154,7 +159,8 @@ nonisolated public final class MemoryGame {
 
     /// Whether a tap on an answer card can be accepted right now.
     public var acceptsInput: Bool { state == .answering }
-    public var isStreakBoostActive: Bool { correctStreak >= GameConfig.streakThreshold }
+    /// In-round streak boost was removed: every correct answer pays the same.
+    public var isStreakBoostActive: Bool { false }
 
     /// Whether the answer values are readable. They are during the memorising
     /// beat, and again while the round resolves so the player can see what they
@@ -286,24 +292,26 @@ nonisolated public final class MemoryGame {
     }
 
     /// Called once the cards have finished turning. From here the round accepts
-    /// exactly one answer.
+    /// answers until a correct pot is caught or the group has gone by.
     @discardableResult
     public func beginAnswering() -> Bool {
         guard state == .questionVisible else { return false }
+        consumedOptionIDs.removeAll()
         state = .answering
         return true
     }
 
     // MARK: - Answering
 
-    /// Resolves an answer reaching the King. Anything that arrives in the wrong
-    /// state — a second arrival in the same round, an arrival during feedback —
-    /// is ignored without touching score or lives.
+    /// Resolves a honey pot reaching the boat. A wrong pot costs points but
+    /// leaves the round open: the right answer is still on the water. Only a
+    /// correct pot locks the sum. Anything that arrives twice, or during
+    /// feedback, is ignored without touching score.
     @discardableResult
     public func select(optionID: UUID, usesBonusFish _: Bool = false) -> AnswerOutcome {
         guard state == .answering,
               let round,
-              selectedOptionID == nil,
+              !consumedOptionIDs.contains(optionID),
               let option = round.options.first(where: { $0.id == optionID })
         else {
             // Deliberately leaves `lastOutcome` alone: an ignored tap must not
@@ -311,35 +319,34 @@ nonisolated public final class MemoryGame {
             return .ignored
         }
 
-        // Lock input for the whole of the resolve phase, before any scoring.
-        selectedOptionID = optionID
-        state = .resolving
+        consumedOptionIDs.insert(optionID)
 
-        let outcome: AnswerOutcome
         if option.isCorrect {
-            let streakWasActive = isStreakBoostActive
+            selectedOptionID = optionID
+            state = .resolving
             let earned = GameConfig.normalCardReward
             cards += earned
             result.correctAnswers += 1
             result.cardsEarned += earned
             correctStreak += 1
             advanceLifeCrabProgressIfNeeded()
-            let startedStreak = !streakWasActive && isStreakBoostActive
-            outcome = .correct(cardsEarned: earned,
-                               usedBonusFish: false,
-                               startedStreak: startedStreak)
-        } else {
-            result.wrongAnswers += 1
-            correctStreak = 0
-            if appliesWrongAnswerPenalty {
-                let penalty = GameConfig.riverWrongAnswerPenalty
-                cards = max(0, cards - penalty)
-                result.cardsEarned = cards
-            }
-            repeatsRound = false
-            outcome = .wrong(correctOptionID: round.correctOption?.id ?? optionID,
-                             lostHalfLife: false)
+            let outcome = AnswerOutcome.correct(cardsEarned: earned,
+                                                usedBonusFish: false,
+                                                startedStreak: false)
+            lastOutcome = outcome
+            return outcome
         }
+
+        result.wrongAnswers += 1
+        correctStreak = 0
+        if appliesWrongAnswerPenalty {
+            let penalty = GameConfig.riverWrongAnswerPenalty
+            cards = max(0, cards - penalty)
+            result.cardsEarned = cards
+        }
+        repeatsRound = false
+        let outcome = AnswerOutcome.wrong(correctOptionID: round.correctOption?.id ?? optionID,
+                                          lostHalfLife: false)
         lastOutcome = outcome
         return outcome
     }
@@ -481,6 +488,7 @@ nonisolated public final class MemoryGame {
 
         // Whatever comes next is a fresh attempt, and pays for its own breach.
         hasBreachedRound = false
+        consumedOptionIDs.removeAll()
 
         // A river wave never repeats the same sum: hitting a pot, or sailing
         // past every pot, both spend the group and move the river on.

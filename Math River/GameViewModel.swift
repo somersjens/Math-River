@@ -58,8 +58,6 @@ final class GameViewModel: ObservableObject {
     @Published private(set) var isGameOver = false
     @Published private(set) var result = SessionResult()
     @Published private(set) var hasBonusFishPower = false
-    @Published private(set) var correctStreak = 0
-    @Published private(set) var isStreakBoostActive = false
     @Published private(set) var isLifeCrabAvailable = false
     /// The sum the player just lost, held under the one that replaced it so a
     /// mistake is never silent. Nil whenever there is nothing to own up to.
@@ -68,9 +66,6 @@ final class GameViewModel: ObservableObject {
     /// shown yet, because its answer is the one thing that must not be given
     /// away in the moment between the mistake and the next question.
     private var pendingMissedSum: MissedSum?
-    /// Changes each time the streak boost starts, allowing the view to replay
-    /// its banner announcement even after an earlier streak was broken.
-    @Published private(set) var streakAnnouncementID = 0
 
     /// Set by the tutorial, which needs to know about every answer the moment
     /// the engine accepts it — that is what moves its script on.
@@ -85,9 +80,9 @@ final class GameViewModel: ObservableObject {
     /// Trailer sessions must not write to the player's save.
     var skipsPersistence = false
 #endif
-    /// The river decides when a group is over — remaining pots keep drifting
-    /// past after a hit — so a scored answer must not install the next sum
-    /// on a timer. The App Store teaser still advances itself.
+    /// The river decides when a group is over. A good pot yanks every rod
+    /// up and then installs the next sum; a miss still lets leftover pots
+    /// drift past, and a later good pot on the same group still scores.
     var defersWaveAdvance = true
     /// A round-resolution callback that became due while the pause card was
     /// covering the arena. It runs once on continue instead of behind the card.
@@ -149,7 +144,7 @@ final class GameViewModel: ObservableObject {
         PlaytimeTracker.shared.challengeStarted()
         AppAudio.shared.setGameplayActive(true, questionText: nil)
         AppAudio.shared.playSessionStart()
-        hasBonusFishPower = prepared.pausedSession?.hasBonusFishPower ?? false
+        hasBonusFishPower = false
         openRound()
         announceRound()
         sync()
@@ -217,8 +212,7 @@ final class GameViewModel: ObservableObject {
         prepareHaptics()
         PlaytimeTracker.shared.challengeStarted()
         AppAudio.shared.setGameplayActive(true, questionText: nil)
-        AppAudio.shared.setGameplayRate(isStreakBoostActive
-                                        ? Float(GameConfig.streakSpeedMultiplier) : 1)
+        AppAudio.shared.setGameplayRate(1)
         let work = pendingScheduledWork
         pendingScheduledWork = nil
         work?()
@@ -244,7 +238,7 @@ final class GameViewModel: ObservableObject {
         if skipsPersistence { return }
 #endif
         guard !hasRecordedResult,
-              let paused = engine.pausedSession(hasBonusFishPower: hasBonusFishPower)
+              let paused = engine.pausedSession(hasBonusFishPower: false)
         else { return }
         guard paused.cards > 0 else {
             PausedSessionStore.shared.clear(request.board)
@@ -272,7 +266,6 @@ final class GameViewModel: ObservableObject {
         pendingScheduledWork = nil
         pendingScoreRewards.removeAll()
         hasBonusFishPower = false
-        streakAnnouncementID = 0
         missedSum = nil
         pendingMissedSum = nil
         AppAudio.shared.playSessionStart()
@@ -289,7 +282,7 @@ final class GameViewModel: ObservableObject {
     /// tells the arena whether the King's sweep actually scored.
     @discardableResult
     func select(optionID: UUID) -> Bool {
-        resolve(engine.select(optionID: optionID, usesBonusFish: hasBonusFishPower))
+        resolve(engine.select(optionID: optionID, usesBonusFish: false))
     }
 
     /// The player smashed the crab carrying the right answer. It costs a whole
@@ -326,25 +319,24 @@ final class GameViewModel: ObservableObject {
         let token = generation
         let delay: Double
         switch outcome {
-        case .correct(let cardsEarned, let usedBonusFish, let startedStreak):
+        case .correct(let cardsEarned, let usedBonusFish, _):
             pendingScoreRewards.append(cardsEarned)
             sync()
-            onAnswerResolved?(true, startedStreak)
+            onAnswerResolved?(true, false)
             AppAudio.shared.playCorrect()
             if usedBonusFish {
                 hasBonusFishPower = false
                 AppAudio.shared.playDoubleScore()
             }
-            if startedStreak {
-                streakAnnouncementID &+= 1
-                AppAudio.shared.playDoubleScore()
-            }
             haptic(.success)
             delay = GameConfig.nextRoundDelay.correct
         case .wrong(_, let lostHalfLife):
-            // Before `advance` moves the session on: this is the last moment
-            // the sum that was just lost is still readable.
-            noteMissedSum()
+            // A river miss does not close the sum: the right pot is still
+            // coming, so the answer must not be written under the next one
+            // unless this group actually goes by unanswered.
+            if !defersWaveAdvance {
+                noteMissedSum()
+            }
             sync()
             onAnswerResolved?(false, false)
             AppAudio.shared.playWrong()
@@ -388,6 +380,9 @@ final class GameViewModel: ObservableObject {
     /// to drift off naturally; now the next sum may appear.
     func completeWave() {
         let token = generation
+        if engine.state == .answering, case .wrong = engine.lastOutcome {
+            noteMissedSum()
+        }
         let previousRoundID = engine.round?.id
         _ = engine.completeWave()
         if engine.state == .gameOver {
@@ -452,14 +447,9 @@ final class GameViewModel: ObservableObject {
         haptic(.light)
     }
 
-    /// Called by the arena when the player taps the passing 2x crab. Multiple
-    /// catches do not stack: one aura always represents one doubled answer.
-    func catchBonusFish() {
-        guard !hasBonusFishPower else { return }
-        hasBonusFishPower = true
-        AppAudio.shared.playDoubleCardAppear()
-        haptic(.rigid)
-    }
+    /// Math River has no 2× crab. Kept so leftover arena wiring can still call
+    /// in without handing the player a doubling power.
+    func catchBonusFish() {}
 
     /// The life crab is a direct life reward, not a power held for the next
     /// answer, so the engine applies it the moment it reaches the King.
@@ -577,12 +567,9 @@ final class GameViewModel: ObservableObject {
         // uses its reason to decide whether to play the arena finale first.
         if engine.state == .gameOver { result = engine.result }
         isGameOver = engine.state == .gameOver
-        correctStreak = engine.correctStreak
-        isStreakBoostActive = engine.isStreakBoostActive
         isLifeCrabAvailable = engine.isLifeCrabAvailable
         syncMissedSum()
-        AppAudio.shared.setGameplayRate(isStreakBoostActive
-                                        ? Float(GameConfig.streakSpeedMultiplier) : 1)
+        AppAudio.shared.setGameplayRate(1)
     }
 
     /// Runs `work` after a delay, unless the session moved on in the meantime.

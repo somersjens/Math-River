@@ -1207,22 +1207,8 @@ final class KingCrabArena: ObservableObject {
     }
 
     private func makeBonusCrabPlan(startingAt firstRound: Int) {
-        let requestedCount = Int.random(in: GameConfig.bonusFishCount)
-
-        // `maximumRounds` is only the one-shell-per-answer ceiling. A perfect
-        // streak pays two shells, and every caught 2x crab can make one of those
-        // answers worth four. Plan against that shortest possible run; a crab
-        // may then be late, but never on a question the level cannot reach.
-        let streakStart = min(GameConfig.streakThreshold, maximumRounds)
-        let shellsAfterStreakStart = max(0,
-            maximumRounds - streakStart - requestedCount * GameConfig.bonusFishMultiplier
-        )
-        let shortestPossibleRun = streakStart
-            + Int(ceil(Double(shellsAfterStreakStart) / Double(GameConfig.streakMultiplier)))
-        let lastRound = max(firstRound, min(maximumRounds, shortestPossibleRun))
-        let availableRounds = Array(firstRound...lastRound)
-        let count = min(requestedCount, availableRounds.count)
-        bonusTriggerRounds = Array(availableRounds.shuffled().prefix(count)).sorted()
+        _ = firstRound
+        bonusTriggerRounds = []
         nextBonusTrigger = 0
     }
 
@@ -1268,7 +1254,11 @@ final class KingCrabArena: ObservableObject {
     }
 
     func setSpeedMultiplier(_ multiplier: Double) {
-        speedMultiplier = max(1, multiplier)
+        // Math River keeps one walking pace. Callers may still pass a
+        // multiplier; it is ignored so leftover streak wiring cannot speed
+        // the arena up.
+        _ = multiplier
+        speedMultiplier = 1
     }
 
     func setScoreTarget(_ target: CGPoint?) {

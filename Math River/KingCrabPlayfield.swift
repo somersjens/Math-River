@@ -353,8 +353,7 @@ struct KingCrabPlayfield: View {
                 arena.setLive(isLive)
                 arena.setBonusAura(hasBonusPower)
                 arena.setLifeCrabAvailable(isLifeCrabAvailable)
-                arena.setSpeedMultiplier(isStreakBoostActive
-                                         ? GameConfig.streakSpeedMultiplier : 1)
+                arena.setSpeedMultiplier(1)
                 arena.setScoreTarget(scoreTarget)
                 arena.setClawTip(character.rig?.clawReach ?? ArenaConfig.clawTip)
                 arena.setRunning(isRunning)
@@ -407,8 +406,7 @@ struct KingCrabPlayfield: View {
             arena.setLifeCrabAvailable(available)
         }
         .onChange(of: isStreakBoostActive) { active in
-            arena.setSpeedMultiplier(active ? GameConfig.streakSpeedMultiplier : 1)
-            // Only the streak landing is worth celebrating; it breaking is not.
+            // Math River has no speed boost: gold is colour only.
             if active, !reduceMotion { arena.beginStreakCelebration() }
         }
         .onChange(of: scoreTarget) { target in

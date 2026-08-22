@@ -81,23 +81,14 @@ nonisolated public enum GameConfig {
 
     // MARK: Bonuses
 
-    /// Five correct answers in a row turn the crabs gold: the streak mode
-    /// pays double and lasts until the next mistake. Five rather than three
-    /// makes it a run the player has to actually string together, which is
-    /// what earns the King his celebration when it lands.
+    /// Retired King Crab leftovers. Math River has no streak speed boost and
+    /// no 2× crab: every correct pot pays `normalCardReward` at the same pace.
     public static let streakThreshold = 5
     public static let streakMultiplier = 2
-    /// The gold crabs march a little faster, so the doubled points are earned
-    /// under real pressure rather than handed over.
-    public static let streakSpeedMultiplier = 1.3
-    /// The first mistake while the streak boost is active breaks the streak,
-    /// but only costs half a life instead of a full one.
+    public static let streakSpeedMultiplier = 1.0
     public static let streakWrongAnswerCostHalves = 1
-
-    /// A 2x crab scuttles across the level this many times. Tapping it doubles
-    /// the next correct answer; a missed one simply leaves the screen.
-    public static let bonusFishCount = 1...3
-    public static let bonusFishMultiplier = 2
+    public static let bonusFishCount = 0...0
+    public static let bonusFishMultiplier = 1
 
     // MARK: Timing (seconds)
     //

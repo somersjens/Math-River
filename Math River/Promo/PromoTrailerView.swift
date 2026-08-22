@@ -27,8 +27,6 @@ struct PromoTrailerView: View {
     @StateObject private var model: GameViewModel
     @StateObject private var director: PromoDirector
     @State private var scoreIconCenter: CGPoint?
-    @State private var showsStreakBanner = false
-    @State private var streakBannerToken = 0
     @State private var playsLevelCompletion = false
     @State private var showsFinale = false
     @State private var iconRotation: Double = -26
@@ -72,15 +70,6 @@ struct PromoTrailerView: View {
                 .opacity(showsFinale || director.showsIcon ? 0 : 1)
                 .animation(.easeOut(duration: 0.22), value: showsFinale)
 
-            if showsStreakBanner, !director.showsIcon {
-                StreakBoostBanner(character: character, isPad: isPad)
-                    .padding(.top, speechBubbleTop(topInset: topInset)
-                             + (isPad ? 96 : 74) + (isPad ? 8 : 6))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                    .transition(.scale(scale: 0.65).combined(with: .opacity))
-                    .allowsHitTesting(false)
-            }
-
             if let headline = director.headline, !director.showsIcon, !showsFinale {
                 PromoSpeechBubble(text: headline, character: character, isPad: isPad)
                     .padding(.horizontal, isPad ? 36 : 18)
@@ -98,15 +87,6 @@ struct PromoTrailerView: View {
         .ignoresSafeArea()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .statusBarHidden(true)
-        .onChange(of: model.streakAnnouncementID) { id in
-            guard id > 0, director.revealsStreakBoost else { return }
-            showStreakBanner(for: id)
-        }
-        .onChange(of: director.revealsStreakBoost) { reveal in
-            if reveal, model.streakAnnouncementID > 0 {
-                showStreakBanner(for: model.streakAnnouncementID)
-            }
-        }
         .onChange(of: model.isGameOver) { isOver in
             if isOver, model.result.reason == .roundsCompleted {
                 playsLevelCompletion = true
@@ -261,20 +241,6 @@ struct PromoTrailerView: View {
     private func speechBubbleTop(topInset: CGFloat) -> CGFloat {
         questionBandTop(topInset: topInset)
             + ArenaConfig.bannerHeight(isPad: isPad) + (isPad ? 10 : 8)
-    }
-
-    private func showStreakBanner(for token: Int) {
-        guard token > 0, token != streakBannerToken || !showsStreakBanner else { return }
-        streakBannerToken = token
-        withAnimation(.spring(response: 0.38, dampingFraction: 0.68)) {
-            showsStreakBanner = true
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
-            guard streakBannerToken == token else { return }
-            withAnimation(.easeOut(duration: 0.25)) {
-                showsStreakBanner = false
-            }
-        }
     }
 }
 

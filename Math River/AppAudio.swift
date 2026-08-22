@@ -622,7 +622,8 @@ final class AppAudio: NSObject, ObservableObject {
 
     private var appliedGameplayRate: Float = 1
 
-    /// Keeps the soundtrack in step with the temporary fast streak mode.
+    /// Soundtrack playback rate. Math River always plays at 1×; the hook stays
+    /// so pause/resume can reset leftover callers without speeding the music.
     ///
     /// The game view model re-publishes its whole state on every answer and
     /// calls this each time, so the unchanged case has to cost nothing:

@@ -44,8 +44,6 @@ final class PromoDirector: ObservableObject {
     private var timer: Timer?
     var onGameplayReady: (() -> Void)?
 
-    private var spawnedHelper = false
-    private var tappedHelper = false
     private var attached = false
     private var completionFinished = false
     private var didSignalReady = false
@@ -171,20 +169,14 @@ final class PromoDirector: ObservableObject {
             if hasReachedKing("56", in: arena) {
                 revealsStreakBoost = true
                 if phaseElapsed >= 0.35 {
-                    enter(.tapHelper)
+                    enter(.waitGold)
                 }
             } else if phaseElapsed >= 4.8 {
                 revealsStreakBoost = hasReachedKing("56", in: arena)
-                    && model.isStreakBoostActive
-                enter(.tapHelper)
-            }
-        case .tapHelper:
-            if !tappedHelper {
-                tappedHelper = arena.promoTapBonusCarrier() || tappedHelper
-            }
-            if isQuestion3 || phaseElapsed >= 0.55 {
                 enter(.waitGold)
             }
+        case .tapHelper:
+            enter(.waitGold)
         case .waitGold:
             headline = nil
             let goldReady = arena.crabs.contains { $0.isGolden && $0.phase == .walking }
@@ -264,19 +256,11 @@ final class PromoDirector: ObservableObject {
         let ids = PromoScript.characterIDs
         let id = ids.indices.contains(step) ? ids[step] : "crab"
         applyCharacter(id)
-        if step == 2, !spawnedHelper {
-            spawnedHelper = true
-            arena?.promoSpawnBonusCrab(duration: 10.4, fromLeading: true)
-        }
     }
 
     private func applyCharacter(_ id: String) {
         guard characterID != id else { return }
         characterID = id
-    }
-
-    private var isQuestion3: Bool {
-        model.round?.question.prompt.contains("−") == true
     }
 
     private func unansweredWalkingCount(in arena: KingCrabArena) -> Int {
