@@ -113,19 +113,29 @@ struct AnimalCharacter: Identifiable, Equatable {
     var skyColor: Color { Color(red: skyRGB.0, green: skyRGB.1, blue: skyRGB.2) }
     var tintColor: Color { Color(red: tintRGB.0, green: tintRGB.1, blue: tintRGB.2) }
 
-    /// Position in the catalog, 1-based. Both pictures below and the rig's
-    /// separate limbs are all exported under this number, so a character can
-    /// never be paired with someone else's artwork.
+    /// Position in the catalog, 1-based. Unlock order and the Premium split
+    /// follow this number; the pictures themselves follow `artNumber`, so a
+    /// character keeps their own artwork when the roster is rearranged.
     var catalogOrder: Int {
         (CharacterUnlocks.orderedCharacterIDs.firstIndex(of: id) ?? 0) + 1
     }
 
+    /// Export index of this animal's pictures, independent of catalog position.
+    /// Crab is 1, elephant 2, bear 3, and so on — the numbers the assets were
+    /// drawn under, which must not move when the bear becomes character 1.
+    var artNumber: Int { Self.artNumbers[id] ?? catalogOrder }
+
+    private static let artNumbers: [String: Int] = [
+        "crab": 1, "elephant": 2, "bear": 3, "fox": 4, "frog": 5,
+        "penguin": 6, "bunny": 7, "dog": 8, "lion": 9, "octopus": 10
+    ]
+
     /// Facing the player: menus, cards, the shop and every portrait slot. It is
     /// the whole animal — shell, claws and legs — on a square canvas, and all
     /// ten are centred and optically equalised, so one square frame renders any
-    /// character at the same apparent size. The King keeps the picture he has
-    /// always had: he is the app's mascot and wears his crown in it.
-    var imageName: String { catalogOrder == 1 ? "1_main" : "\(catalogOrder)_full" }
+    /// character at the same apparent size. The original mascot portrait stays
+    /// on art 1; everyone else uses their full square.
+    var imageName: String { artNumber == 1 ? "1_main" : "\(artNumber)_full" }
     var artwork: Image { Image(imageName) }
 
     /// The same animal at chip size, for the slots that draw him no bigger than
@@ -134,7 +144,7 @@ struct AnimalCharacter: Identifiable, Equatable {
     /// those the full-size picture makes the renderer unpack a 640-pixel square
     /// to paint forty points of it, and ten of those is most of what opening
     /// the shop costs.
-    var thumbImageName: String { "\(catalogOrder)_thumb" }
+    var thumbImageName: String { "\(artNumber)_thumb" }
     var thumbArtwork: Image { Image(thumbImageName) }
 
     /// The separate limbs the arena animates this character from, when the
@@ -166,15 +176,15 @@ enum CharacterCatalog {
     /// the menu and the motion trail behind a portrait all carry the colours
     /// the player is actually looking at.
     static let all: [AnimalCharacter] = [
+        AnimalCharacter(id: "bear", name: "Bear", emoji: "🐻",
+                        primaryRGB: (0.72, 0.44, 0.16), deepRGB: (0.42, 0.20, 0.06),
+                        skyRGB: (0.99, 0.94, 0.88), tintRGB: (0.98, 0.89, 0.79)),
         AnimalCharacter(id: "crab", name: "Crab", emoji: "🦀",
                         primaryRGB: (0.90, 0.27, 0.10), deepRGB: (0.62, 0.13, 0.03),
                         skyRGB: (1.00, 0.90, 0.87), tintRGB: (1.00, 0.82, 0.77)),
         AnimalCharacter(id: "elephant", name: "Elephant", emoji: "🐘",
                         primaryRGB: (0.36, 0.58, 0.78), deepRGB: (0.19, 0.38, 0.58),
                         skyRGB: (0.90, 0.94, 0.97), tintRGB: (0.81, 0.89, 0.96)),
-        AnimalCharacter(id: "bear", name: "Bear", emoji: "🐻",
-                        primaryRGB: (0.72, 0.44, 0.16), deepRGB: (0.42, 0.20, 0.06),
-                        skyRGB: (0.99, 0.94, 0.88), tintRGB: (0.98, 0.89, 0.79)),
         AnimalCharacter(id: "fox", name: "Fox", emoji: "🦊",
                         primaryRGB: (0.94, 0.60, 0.26), deepRGB: (0.68, 0.30, 0.07),
                         skyRGB: (1.00, 0.94, 0.87), tintRGB: (1.00, 0.89, 0.77)),

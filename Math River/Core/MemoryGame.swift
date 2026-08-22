@@ -300,7 +300,7 @@ nonisolated public final class MemoryGame {
     /// state — a second arrival in the same round, an arrival during feedback —
     /// is ignored without touching score or lives.
     @discardableResult
-    public func select(optionID: UUID, usesBonusFish: Bool = false) -> AnswerOutcome {
+    public func select(optionID: UUID, usesBonusFish _: Bool = false) -> AnswerOutcome {
         guard state == .answering,
               let round,
               selectedOptionID == nil,
@@ -318,28 +318,55 @@ nonisolated public final class MemoryGame {
         let outcome: AnswerOutcome
         if option.isCorrect {
             let streakWasActive = isStreakBoostActive
-            let fishMultiplier = usesBonusFish ? GameConfig.bonusFishMultiplier : 1
-            let streakMultiplier = streakWasActive ? GameConfig.streakMultiplier : 1
-            let earned = GameConfig.normalCardReward * fishMultiplier * streakMultiplier
+            let earned = GameConfig.normalCardReward
             cards += earned
             result.correctAnswers += 1
             result.cardsEarned += earned
-            if usesBonusFish {
-                result.doubleCardsAnswered += 1
-            }
-            result.bonusCards += earned - GameConfig.normalCardReward
             correctStreak += 1
             advanceLifeCrabProgressIfNeeded()
             let startedStreak = !streakWasActive && isStreakBoostActive
             outcome = .correct(cardsEarned: earned,
-                               usedBonusFish: usesBonusFish,
+                               usedBonusFish: false,
                                startedStreak: startedStreak)
         } else {
-            outcome = penaliseGuardedAnswer(correctOptionID:
-                                                round.correctOption?.id ?? optionID)
+            result.wrongAnswers += 1
+            correctStreak = 0
+            if appliesWrongAnswerPenalty {
+                let penalty = GameConfig.riverWrongAnswerPenalty
+                cards = max(0, cards - penalty)
+                result.cardsEarned = cards
+            }
+            repeatsRound = false
+            outcome = .wrong(correctOptionID: round.correctOption?.id ?? optionID,
+                             lostHalfLife: false)
         }
         lastOutcome = outcome
         return outcome
+    }
+
+    /// The honey-pot group has gone by without a choice. No score, next sum.
+    @discardableResult
+    public func skipUnanswered() -> Bool {
+        guard state == .answering else { return false }
+        repeatsRound = false
+        selectedOptionID = nil
+        lastOutcome = nil
+        state = .roundComplete
+        return true
+    }
+
+    /// Called once the last pot of the current group has passed the boat.
+    /// Scores have already been applied (or skipped); this only moves the
+    /// river on to the next sum, or ends the run after the last group.
+    @discardableResult
+    public func completeWave() -> GameState {
+        if state == .answering {
+            _ = skipUnanswered()
+        } else if state == .resolving {
+            _ = finishResolving()
+        }
+        guard state == .roundComplete else { return state }
+        return advance()
     }
 
     /// The player smashed the crab carrying the right answer. It costs a whole
@@ -455,25 +482,12 @@ nonisolated public final class MemoryGame {
         // Whatever comes next is a fresh attempt, and pays for its own breach.
         hasBreachedRound = false
 
-        if lifeHalves <= 0 {
-            finish(reason: .outOfLives)
-            return state
-        }
-        // A missed answer does not use up a round: the same sum comes straight
-        // back, with the life already paid for it.
-        if repeatsRound {
-            repeatsRound = false
-            selectedOptionID = nil
-            lastOutcome = nil
-            state = .answering
-            return state
-        }
-        // The board is full: this is what "level complete" means, and it is
-        // what the target quoted on the start and result cards refers to.
-        if cards >= board.maximum {
-            finish(reason: .roundsCompleted)
-            return state
-        }
+        // A river wave never repeats the same sum: hitting a pot, or sailing
+        // past every pot, both spend the group and move the river on.
+        repeatsRound = false
+
+        // The river has a fixed length: this many groups, then calm water.
+        // Score — even a full board — does not cut the run short.
         if roundNumber >= maximumRounds {
             finish(reason: .roundsCompleted)
             return state

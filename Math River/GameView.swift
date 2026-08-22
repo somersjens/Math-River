@@ -1,14 +1,13 @@
 //
 //  GameView.swift
-//  King Krab
+//  Math River
 //
-//  The playing surface. A round runs on the sea floor: the sum stands at the
-//  top of the screen, four crabs walk in from the corners carrying answer
-//  cards, and the player smashes the three wrong ones before they reach the
-//  King while letting the right one through.
+//  The playing surface. A round runs on the river: the sum stands at the
+//  top of the screen, four honey pots hang over the water, and the player
+//  steers a log boat between three lanes to hit one answer.
 //
-//  All rules live in `MemoryGame` and the whole of the arena lives in
-//  `KingCrabArena.swift` and `KingCrabPlayfield.swift`; this file only puts the
+//  All rules live in `MemoryGame` and the arena lives in
+//  `MathRiverArena.swift` and `MathRiverPlayfield.swift`; this file only puts the
 //  HUD and the arena together and hands every event straight to the engine,
 //  which is the single place that decides what it costs or pays.
 //
@@ -285,36 +284,28 @@ struct GameView: View {
         let topInset = max(screenInsets.top, isPad ? 24 : 16)
 
         return ZStack(alignment: .top) {
-            KingCrabPlayfield(round: model.round,
-                              missedSum: model.missedSum,
-                              maximumRounds: model.maximumRounds,
-                              character: character,
-                              isPad: isPad,
-                              isLive: model.acceptsInput,
-                              isRunning: isArenaRunning,
-                              playsKingEntrance: playsKingEntrance,
-                              hasBonusPower: model.hasBonusFishPower,
-                              isLifeCrabAvailable: model.isLifeCrabAvailable,
-                              isStreakBoostActive: model.isStreakBoostActive,
-                              playsLevelCompletion: playsLevelCompletion,
-                              reduceMotion: reduceMotion,
-                              tutorialPlan: tutorial.plan,
-                              reservesTutorialMessage: reservesTutorialMessage,
-                              topReserve: playfieldTopReserve(topInset: topInset),
-                              bottomReserve: screenInsets.bottom,
-                              scoreTarget: scoreIconCenter,
-                              onGuardedArrival: { model.select(optionID: $0) },
-                              onSmashedGuard: model.smashGuardedAnswer,
-                              onBreach: { model.absorbBreach() },
-                              onSmash: { _ in model.crabSmashed() },
-                              onSweep: model.kingSweeps,
-                              onShellArrived: model.scoreBubbleArrived,
-                              onBonusCrabCaught: model.catchBonusFish,
-                              onLifeCrabArrived: model.catchLifeCrab,
-                              onKingEntranceComplete: finishKingEntrance,
-                              onLevelCompletionStarted: { showsFinale = true },
-                              onLevelCompletionFinished: finishLevelCompletion,
-                              onTutorialEvent: tutorial.handle)
+            MathRiverPlayfield(round: model.round,
+                               missedSum: model.missedSum,
+                               maximumRounds: model.maximumRounds,
+                               character: character,
+                               isPad: isPad,
+                               isLive: model.acceptsInput,
+                               isRunning: isArenaRunning,
+                               playsEntrance: playsKingEntrance,
+                               playsLevelCompletion: playsLevelCompletion,
+                               reduceMotion: reduceMotion,
+                               tutorialPlan: tutorial.plan,
+                               reservesTutorialMessage: reservesTutorialMessage,
+                               topReserve: playfieldTopReserve(topInset: topInset),
+                               bottomReserve: screenInsets.bottom,
+                               scoreTarget: scoreIconCenter,
+                               onAnswer: { model.select(optionID: $0) },
+                               onRewardArrived: model.scoreBubbleArrived,
+                               onEntranceComplete: finishKingEntrance,
+                               onLevelCompletionStarted: { showsFinale = true },
+                               onLevelCompletionFinished: finishLevelCompletion,
+                               onTutorialEvent: tutorial.handle,
+                               onWaveComplete: model.completeWave)
 
             hud
                 .padding(.leading, max(isPad ? 28 : 16, screenInsets.leading + 12))
@@ -375,18 +366,15 @@ struct GameView: View {
         isTutorialArmed || tutorial.reservesMessageArea
     }
 
-    /// The room the arena leaves for the HUD above it, which is also where the
-    /// sum's banner is measured from.
+    /// The room the arena leaves for the HUD above it.
     private func playfieldTopReserve(topInset: CGFloat) -> CGFloat {
-        topInset + (isPad ? 54 : 42)
+        topInset + (isPad ? 12 : 6) + hudColumnHeight
     }
 
-    /// Where the walkthrough's note sits: flush under the sum's banner, in the
-    /// same geometry `KingCrabPlayfield` places that banner with, so the note
-    /// lands under the question however the safe area works out.
+    /// The walkthrough sits flush under the sum, which now shares the pause
+    /// column's height.
     private func tutorialMessageTop(topInset: CGFloat) -> CGFloat {
-        playfieldTopReserve(topInset: topInset) + (isPad ? 12 : 8)
-            + ArenaConfig.bannerHeight(isPad: isPad) + (isPad ? 8 : 6)
+        topInset + (isPad ? 12 : 6) + hudColumnHeight + (isPad ? 10 : 8)
     }
 
     private func showStreakBanner(for token: Int) {
@@ -417,17 +405,24 @@ struct GameView: View {
     // MARK: - HUD
 
     private var hud: some View {
-        ZStack {
-            progressCounter
+        VStack(alignment: .leading, spacing: isPad ? 10 : 8) {
+            HStack(alignment: .top, spacing: isPad ? 12 : 10) {
+                VStack(spacing: hudScoreGap) {
+                    pauseButton
+                    progressCounter
+                }
+                RiverQuestionBanner(prompt: model.round?.question.prompt ?? "",
+                                    roundID: model.round?.id,
+                                    ink: character.deepColor,
+                                    isPad: isPad)
+                    .frame(height: hudColumnHeight)
+                    .opacity(showsFinale || model.round == nil ? 0 : 1)
+                    .allowsHitTesting(false)
+            }
 
-            HStack(spacing: 10) {
-                pauseButton
-                Spacer(minLength: 0)
-                LivesView(lives: model.livesRemaining,
-                          character: character,
-                          isPad: isPad,
-                          glyphSize: hudSymbolSize,
-                          rowHeight: hudControlSize)
+            if let missedSum = model.missedSum, !showsFinale, !tutorial.isActive {
+                RiverMissedNote(text: missedSum.text, ink: character.deepColor, isPad: isPad)
+                    .frame(maxWidth: .infinity)
             }
         }
     }
@@ -459,39 +454,34 @@ struct GameView: View {
         .accessibilityLabel(Text("game.pause"))
     }
 
-    /// The bubble and hearts nearly fill the pause button's height, like the
-    /// reference HUD, while the pause bars keep the breathing room of the disc.
     private var hudControlSize: CGFloat { isPad ? 44 : 34 }
-    private var hudSymbolSize: CGFloat { isPad ? 34 : 26 }
     private var pauseGlyphSize: CGFloat { isPad ? 22 : 16 }
-    private var hudNumberSize: CGFloat { isPad ? 32 : 24 }
+    private var hudScoreGap: CGFloat { isPad ? 6 : 4 }
+    private var hudColumnHeight: CGFloat { hudControlSize + hudScoreGap + hudControlSize }
 
-    /// Just the shells banked this session. What the board holds is quoted on
-    /// the start card and again on the result card, so the playing field does
-    /// not have to carry it too.
+    /// Same disc as the pause button, with the score as a digit on it.
     private var progressCounter: some View {
-        HStack(alignment: .center, spacing: isPad ? 7 : 5) {
-            Text(verbatim: LN(model.cards))
-                .font(.system(size: hudNumberSize, weight: .heavy, design: .rounded))
-                .monospacedDigit()
-                .lineLimit(1)
-                .modifier(NumericCountTransition(value: Double(model.cards)))
-            CurrencyIcon(size: hudSymbolSize)
-                .background {
-                    GeometryReader { proxy in
-                        Color.clear.preference(
-                            key: ScoreIconCenterPreferenceKey.self,
-                            value: CGPoint(x: proxy.frame(in: .global).midX,
-                                           y: proxy.frame(in: .global).midY)
-                        )
-                    }
+        Text(verbatim: LN(model.cards))
+            .font(.system(size: isPad ? 22 : 16, weight: .heavy, design: .rounded))
+            .monospacedDigit()
+            .lineLimit(1)
+            .minimumScaleFactor(0.5)
+            .modifier(NumericCountTransition(value: Double(model.cards)))
+            .foregroundStyle(.white)
+            .frame(width: hudControlSize, height: hudControlSize)
+            .background(Circle().fill(character.deepColor))
+            .background {
+                GeometryReader { proxy in
+                    Color.clear.preference(
+                        key: ScoreIconCenterPreferenceKey.self,
+                        value: CGPoint(x: proxy.frame(in: .global).midX,
+                                       y: proxy.frame(in: .global).midY)
+                    )
                 }
-        }
-        .frame(height: hudControlSize, alignment: .center)
-        .foregroundStyle(character.deepColor)
-        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: model.cards)
-        .accessibilityIdentifier("progress")
-        .accessibilityLabel(Text(L("game.bubblesCollected \(model.cards)")))
+            }
+            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: model.cards)
+            .accessibilityIdentifier("progress")
+            .accessibilityLabel(Text(L("game.bubblesCollected \(model.cards)")))
     }
 
     /// The arena only ticks while the level is actually being played: never

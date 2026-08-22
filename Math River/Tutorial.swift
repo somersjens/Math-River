@@ -49,7 +49,16 @@ enum TutorialStep: Int, CaseIterable, Identifiable {
     /// The message shown on screen for this step.
     var messageKey: String { "tutorial.step.\(rawValue)" }
 
-    var next: TutorialStep? { TutorialStep(rawValue: rawValue + 1) }
+    var next: TutorialStep? {
+        switch self {
+        case .smashWrong: return .guardCorrect
+        case .guardCorrect: return .protectKing
+        case .protectKing: return .freePlay
+        case .lifeCrab, .bonusCrab, .buildStreak, .superBonusRunning: return .freePlay
+        case .freePlay: return .complete
+        case .complete: return nil
+        }
+    }
 
     /// How long a message that nothing in the arena can finish stays on screen
     /// before the script moves itself on.
@@ -93,6 +102,8 @@ enum CrabTutorialEvent {
     case clearedWave
     case caughtBonusCrab
     case lifeCrabArrived
+    /// The boat sailed into a honey pot.
+    case hitPot
 }
 
 // MARK: - Controller
@@ -179,13 +190,13 @@ final class TutorialController: ObservableObject {
         case .smashedWrongCrab:
             break
         case .clearedWave:
-            // The first step is over once every wrong crab has been dealt with,
-            // which is exactly the skill it teaches.
-            if step == .smashWrong { advance() }
+            break
         case .caughtBonusCrab:
             if step == .bonusCrab { advance() }
         case .lifeCrabArrived:
             if step == .lifeCrab { advance() }
+        case .hitPot:
+            if step == .smashWrong { advance() }
         }
     }
 
@@ -244,30 +255,7 @@ final class TutorialController: ObservableObject {
     private static func plan(for step: TutorialStep) -> CrabTutorialPlan {
         var plan = CrabTutorialPlan()
         plan.isActive = true
-        switch step {
-        case .smashWrong:
-            // Every wrong answer this question has, and no right one: there is
-            // nothing here to protect yet, so tapping is all there is to learn.
-            plan.answers = .init(correct: 0, wrong: GameConfig.distractorCount)
-        case .guardCorrect:
-            plan.answers = .init(correct: 1, wrong: 1)
-        case .protectKing:
-            plan.answers = .init(correct: 1, wrong: 2)
-        case .lifeCrab:
-            plan.suppressesAnswers = true
-            plan.wantsLifeCrab = true
-        case .bonusCrab:
-            plan.suppressesAnswers = true
-            plan.wantsBonusCrab = true
-        case .buildStreak:
-            plan.answers = .init(correct: 1, wrong: 1)
-        case .superBonusRunning:
-            plan.answers = .init(correct: 1, wrong: 2)
-        case .freePlay, .complete:
-            // Nothing shaped any more: full waves, both helper crabs back on
-            // their own schedule. Only the message is still the tutorial's.
-            break
-        }
+        _ = step
         return plan
     }
 }

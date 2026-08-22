@@ -144,13 +144,24 @@ nonisolated public enum GameConfig {
     /// The second half of the catalog is Premium-exclusive: `nil` means the
     /// character cannot be earned with cards at all, no matter the total.
     public static let characterUnlockRequirements: [Int?] = [
-        0,          // crab — from the start
-        500,        // elephant
-        1_500,      // bear
-        3_000,      // fox
-        5_000,      // frog
-        nil, nil, nil, nil, nil   // penguin, bunny, dog, lion, octopus — Premium
+        0,          // starter — from the start
+        500,        // second character
+        1_500,      // third
+        3_000,      // fourth
+        5_000,      // fifth
+        nil, nil, nil, nil, nil   // remaining five — Premium
     ]
+
+    // MARK: Math River
+
+    /// Seconds from the moment a honey-pot group is on screen until the first
+    /// pot reaches the boat. The player reads the sum in this window.
+    public static let riverApproachDuration = 4.0
+    /// Quiet water after the last pot of a group has gone by, before the next
+    /// sum appears.
+    public static let riverGroupGap = 1.25
+    /// Points taken for sailing into a wrong honey pot. Never below zero.
+    public static let riverWrongAnswerPenalty = 1
 
     // MARK: Level progress
 

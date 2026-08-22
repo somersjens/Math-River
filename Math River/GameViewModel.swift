@@ -85,6 +85,10 @@ final class GameViewModel: ObservableObject {
     /// Trailer sessions must not write to the player's save.
     var skipsPersistence = false
 #endif
+    /// The river decides when a group is over — remaining pots keep drifting
+    /// past after a hit — so a scored answer must not install the next sum
+    /// on a timer. The App Store teaser still advances itself.
+    var defersWaveAdvance = true
     /// A round-resolution callback that became due while the pause card was
     /// covering the arena. It runs once on continue instead of behind the card.
     private var pendingScheduledWork: (() -> Void)?
@@ -156,6 +160,7 @@ final class GameViewModel: ObservableObject {
     /// intro, no persistence and no spoken prompt.
     func beginPromo(cards: Int, streak: Int, rounds: [GameRound]) {
         skipsPersistence = true
+        defersWaveAdvance = false
         engine.installPromoSession(cards: cards, streak: streak, rounds: rounds)
         isPaused = false
         prepareHaptics()
@@ -345,7 +350,8 @@ final class GameViewModel: ObservableObject {
             AppAudio.shared.playWrong()
             // The tutorial's free attempt costs nothing, so it must not sound
             // like it did: only the plain "not that one" note plays there.
-            if engine.appliesWrongAnswerPenalty {
+            // River scoring has no lives, so the life-lost stings stay off.
+            if engine.appliesWrongAnswerPenalty, !defersWaveAdvance {
                 if lostHalfLife {
                     AppAudio.shared.playHalfLife()
                 } else {
@@ -357,6 +363,8 @@ final class GameViewModel: ObservableObject {
         case .ignored:
             return false
         }
+
+        if defersWaveAdvance { return true }
 
         schedule(after: delay, token: token) { [weak self] in
             guard let self else { return }
@@ -374,6 +382,22 @@ final class GameViewModel: ObservableObject {
             self.sync()
         }
         return true
+    }
+
+    /// The last honey pot of this sum has gone by. Remaining pots were allowed
+    /// to drift off naturally; now the next sum may appear.
+    func completeWave() {
+        let token = generation
+        let previousRoundID = engine.round?.id
+        _ = engine.completeWave()
+        if engine.state == .gameOver {
+            finishSession()
+        } else if engine.round?.id != previousRoundID {
+            announceRound()
+            openRound()
+        }
+        guard generation == token else { return }
+        sync()
     }
 
     /// Writes down the sum that was just lost, so the next one can carry it.
