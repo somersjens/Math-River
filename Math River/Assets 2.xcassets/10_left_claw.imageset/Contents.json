@@ -1,0 +1,12 @@
+{
+  "images" : [
+    {
+      "filename" : "10_left_claw.png",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

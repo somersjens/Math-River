@@ -1,0 +1,42 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "CFBundleDisplayName" : {
+      "comment" : "The app's name under its icon on the home screen. Follows the device language, not the in-app language switch, so it can differ from the language the game is being played in.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "King Crab"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Koningkrab"
+          }
+        }
+      }
+    },
+    "CFBundleName" : {
+      "comment" : "The short bundle name, used where the display name does not fit. Keep it under about 15 characters.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "King Crab"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Koningkrab"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
