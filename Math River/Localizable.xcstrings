@@ -1,12 +1,6 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "←" : {
-
-    },
-    "→" : {
-
-    },
     "character.bear" : {
       "comment" : "Animal name, shown in the character picker, the premium gallery and unlock messages. One short noun a young child would use.",
       "extractionState" : "manual",

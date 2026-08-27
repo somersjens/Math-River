@@ -59,7 +59,9 @@ struct ElephantChallengeApp: App {
         WindowGroup {
             ZStack {
 #if DEBUG
-                if PromoMode.isActive {
+                if HoneySlidePreviewMode.isActive {
+                    HoneySlideDebugPreview()
+                } else if PromoMode.isActive {
                     PromoTrailerRoot()
                 } else if onboardingComplete && !onboardingReplayRequested {
                     HomeView()
