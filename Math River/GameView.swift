@@ -3,8 +3,8 @@
 //  Math River
 //
 //  The playing surface. A round runs on the river: the sum stands at the
-//  top of the screen, four honey pots hang over the water, and the player
-//  steers a log boat between three lanes to hit one answer.
+//  top of the screen, four answer stones lie on the water, and the player
+//  steers the honey-ring rider between three lanes to hit one answer.
 //
 //  All rules live in `MemoryGame` and the arena lives in
 //  `MathRiverArena.swift` and `MathRiverPlayfield.swift`; this file only puts the
@@ -352,8 +352,7 @@ struct GameView: View {
         topInset + (isPad ? 12 : 6) + hudColumnHeight
     }
 
-    /// The walkthrough sits flush under the sum, which now shares the pause
-    /// column's height.
+    /// The walkthrough sits flush under the sum board.
     private func tutorialMessageTop(topInset: CGFloat) -> CGFloat {
         topInset + (isPad ? 12 : 6) + hudColumnHeight + (isPad ? 10 : 8)
     }
@@ -374,18 +373,18 @@ struct GameView: View {
 
     private var hud: some View {
         VStack(alignment: .leading, spacing: isPad ? 10 : 8) {
-            HStack(alignment: .top, spacing: isPad ? 12 : 10) {
-                VStack(spacing: hudScoreGap) {
-                    pauseButton
-                    progressCounter
-                }
+            ZStack(alignment: .top) {
                 RiverQuestionBanner(prompt: model.round?.question.prompt ?? "",
                                     roundID: model.round?.id,
                                     ink: character.deepColor,
                                     isPad: isPad)
-                    .frame(height: hudColumnHeight)
-                    .opacity(showsFinale || model.round == nil ? 0 : 1)
                     .allowsHitTesting(false)
+
+                HStack(alignment: .top, spacing: isPad ? 12 : 10) {
+                    pauseButton
+                    Spacer(minLength: 0)
+                    progressCounter
+                }
             }
 
             if let missedSum = model.missedSum, !showsFinale, !tutorial.isActive {
@@ -404,18 +403,14 @@ struct GameView: View {
             showsPauseCard = true
             showsIntro = true
         } label: {
-            // Inverted against the rest of the HUD: the disc carries the theme
-            // colour and the bars are punched clean out of it, so the playing
-            // field shows through where the glyph used to be.
             Circle()
                 .fill(character.deepColor)
                 .frame(width: hudControlSize, height: hudControlSize)
                 .overlay {
                     Image(systemName: "pause.fill")
                         .font(.system(size: pauseGlyphSize, weight: .bold))
-                        .blendMode(.destinationOut)
+                        .foregroundStyle(.white)
                 }
-                .compositingGroup()
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("pause")
@@ -424,8 +419,7 @@ struct GameView: View {
 
     private var hudControlSize: CGFloat { isPad ? 44 : 34 }
     private var pauseGlyphSize: CGFloat { isPad ? 22 : 16 }
-    private var hudScoreGap: CGFloat { isPad ? 6 : 4 }
-    private var hudColumnHeight: CGFloat { hudControlSize + hudScoreGap + hudControlSize }
+    private var hudColumnHeight: CGFloat { RiverQuestionBanner.height(isPad: isPad) }
 
     /// Same disc as the pause button, with the score as a digit on it.
     private var progressCounter: some View {

@@ -136,7 +136,7 @@ nonisolated public final class MemoryGame {
     /// other across the same wave — is one mistake, not three.
     private var hasBreachedRound = false
 
-    /// Honey pots already taken this sum. A wrong jar is spent but the round
+    /// Answer stones already taken this sum. A wrong stone is spent but the round
     /// stays open, so the same pot cannot score twice while the right one
     /// can still be caught.
     private var consumedOptionIDs: Set<UUID> = []
@@ -303,7 +303,7 @@ nonisolated public final class MemoryGame {
 
     // MARK: - Answering
 
-    /// Resolves a honey pot reaching the boat. A wrong pot costs points but
+    /// Resolves an answer stone reaching the rider. A wrong stone costs points but
     /// leaves the round open: the right answer is still on the water. Only a
     /// correct pot locks the sum. Anything that arrives twice, or during
     /// feedback, is ignored without touching score.

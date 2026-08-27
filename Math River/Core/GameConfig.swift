@@ -151,7 +151,7 @@ nonisolated public enum GameConfig {
     /// Quiet water after the last pot of a group has gone by, before the next
     /// sum appears.
     public static let riverGroupGap = 1.25
-    /// Points taken for sailing into a wrong honey pot. Never below zero.
+    /// Points taken for sailing into a wrong answer stone. Never below zero.
     public static let riverWrongAnswerPenalty = 1
 
     // MARK: Level progress

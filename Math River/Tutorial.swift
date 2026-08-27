@@ -102,7 +102,7 @@ enum CrabTutorialEvent {
     case clearedWave
     case caughtBonusCrab
     case lifeCrabArrived
-    /// The boat sailed into a honey pot.
+    /// The rider sailed into an answer stone.
     case hitPot
 }
 

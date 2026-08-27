@@ -115205,937 +115205,937 @@
       }
     },
     "tutorial.step.1" : {
-      "comment" : "Walkthrough step 1: swipe between lanes and hit a honey pot. Spoken to a young child, one or two short sentences.",
+      "comment" : "Walkthrough step 1: swipe between lanes and hit an answer stone. Spoken to a young child, one or two short sentences.",
       "extractionState" : "manual",
       "localizations" : {
         "af" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "am" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "as" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "az" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "be" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "bg" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "bn" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "bo" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "ca" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "cs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "cy" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "el" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "et" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "eu" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "fa" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "fo" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "ga" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "gl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "gu" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "he" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "hi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "hr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "hu" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "hy" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "id" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "is" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "ka" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "kk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "kn" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "lo" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "lt" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "lv" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "mk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "ml" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "mn" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "mr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "ms" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "my" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "ne" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Stuur je boot met een veeg! Vaar tegen een honingpot om een antwoord te kiezen."
+            "value" : "Stuur met een veeg! Vaar tegen een antwoordsteen om een antwoord te kiezen."
           }
         },
         "or" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "pa" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "pt" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "ro" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "si" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "sk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "sl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "sq" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "sr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "sv" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "sw" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "ta" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "te" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "ug" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "ur" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "uz" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "zh" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         },
         "zu" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steer your boat with a swipe! Sail into a honey pot to pick an answer."
+            "value" : "Steer with a swipe! Sail into an answer stone to pick an answer."
           }
         }
       }
     },
     "tutorial.step.2" : {
-      "comment" : "Walkthrough step 2: pick the honey pot that matches the sum. Spoken to a young child, one or two short sentences.",
+      "comment" : "Walkthrough step 2: pick the answer stone that matches the sum. Spoken to a young child, one or two short sentences.",
       "extractionState" : "manual",
       "localizations" : {
         "af" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "am" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "as" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "az" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "be" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "bg" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "bn" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "bo" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "ca" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "cs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "cy" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "el" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "et" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "eu" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "fa" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "fo" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "ga" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "gl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "gu" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "he" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "hi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "hr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "hu" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "hy" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "id" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "is" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "ka" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "kk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "kn" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "lo" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "lt" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "lv" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "mk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "ml" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "mn" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "mr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "ms" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "my" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "ne" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Lees de som, en vaar door de honingpot met het juiste antwoord!"
+            "value" : "Lees de som en vaar door de antwoordsteen met het juiste antwoord!"
           }
         },
         "or" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "pa" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "pt" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "ro" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "si" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "sk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "sl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "sq" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "sr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "sv" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "sw" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "ta" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "te" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "ug" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "ur" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "uz" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "zh" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         },
         "zu" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read the sum, then sail through the honey pot with the right answer!"
+            "value" : "Read the sum, then sail through the answer stone with the right answer!"
           }
         }
       }

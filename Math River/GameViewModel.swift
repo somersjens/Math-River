@@ -376,7 +376,7 @@ final class GameViewModel: ObservableObject {
         return true
     }
 
-    /// The last honey pot of this sum has gone by. Remaining pots were allowed
+    /// The last answer stone of this sum has gone by. Remaining stones were allowed
     /// to drift off naturally; now the next sum may appear.
     func completeWave() {
         let token = generation
