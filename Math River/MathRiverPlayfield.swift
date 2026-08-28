@@ -41,7 +41,9 @@ struct MathRiverPlayfield: View {
     var body: some View {
         GeometryReader { proxy in
             let size = proxy.size
-            let projection = RiverProjection(size: size, phase: arena.scroll)
+            let projection = RiverProjection(size: size,
+                                             phase: arena.scroll,
+                                             speed: arena.currentSlideSpeed)
 
             ZStack(alignment: .topLeading) {
                 RiverWorld(character: character,
@@ -146,6 +148,12 @@ private struct RiverWorld: View {
                 .zIndex(31)
             rewards
                 .zIndex(32)
+#if DEBUG
+            if HoneySlideDebugState.enabled {
+                HoneySlidePerformanceOverlay(text: arena.debugPerformanceText)
+                    .zIndex(100)
+            }
+#endif
         }
         .clipped()
     }
@@ -190,24 +198,26 @@ private struct RiverWorld: View {
 
     private var splashes: some View {
         ForEach(arena.splashes) { splash in
-            let fade = max(0, 1 - splash.age / splash.life)
-            let stretch = 1 + min(0.45, abs(splash.vy) / 900)
-            Ellipse()
-                .fill(
-                    RadialGradient(colors: [
-                        splash.honey
-                            ? Color(red: 1, green: 0.86, blue: 0.40).opacity(0.95 * fade)
-                            : Color.white.opacity(0.92 * fade),
-                        splash.honey
-                            ? Color(red: 1, green: 0.78, blue: 0.22).opacity(0.0)
-                            : Color(red: 0.55, green: 0.88, blue: 1.0).opacity(0.0)
-                    ], center: .center, startRadius: 0, endRadius: 8 * splash.scale)
-                )
-                .frame(width: 9 * splash.scale,
-                       height: 11 * splash.scale * stretch)
-                .rotationEffect(.degrees(Double(splash.vx) * 0.04))
-                .position(x: splash.x, y: splash.y)
-                .allowsHitTesting(false)
+            if splash.isActive {
+                let fade = max(0, 1 - splash.age / splash.life)
+                let stretch = 1 + min(0.45, abs(splash.vy) / 900)
+                Ellipse()
+                    .fill(
+                        RadialGradient(colors: [
+                            splash.honey
+                                ? Color(red: 1, green: 0.86, blue: 0.40).opacity(0.95 * fade)
+                                : Color.white.opacity(0.92 * fade),
+                            splash.honey
+                                ? Color(red: 1, green: 0.78, blue: 0.22).opacity(0.0)
+                                : Color(red: 0.55, green: 0.88, blue: 1.0).opacity(0.0)
+                        ], center: .center, startRadius: 0, endRadius: 8 * splash.scale)
+                    )
+                    .frame(width: 9 * splash.scale,
+                           height: 11 * splash.scale * stretch)
+                    .rotationEffect(.degrees(Double(splash.vx) * 0.04))
+                    .position(x: splash.x, y: splash.y)
+                    .allowsHitTesting(false)
+            }
         }
     }
 
@@ -226,6 +236,29 @@ private struct RiverWorld: View {
         }
     }
 }
+
+#if DEBUG
+private struct HoneySlidePerformanceOverlay: View {
+    let text: String
+
+    var body: some View {
+        VStack {
+            HStack {
+                Text(text)
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.white)
+                    .padding(9)
+                    .background(.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 9))
+                Spacer(minLength: 0)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.top, 46)
+        .padding(.horizontal, 10)
+        .allowsHitTesting(false)
+    }
+}
+#endif
 
 // MARK: - Water & banks
 
@@ -392,25 +425,38 @@ private struct RiverWater: View {
 
     var body: some View {
         Canvas(opaque: false, colorMode: .nonLinear, rendersAsynchronously: true) { context, _ in
-            drawBase(in: &context, quality: quality)
-            drawFlowingMaterial(in: &context, quality: quality)
-            drawFinish(in: &context, quality: quality)
+#if DEBUG
+            let generationMeasurement = HoneySlideProfiler.beginTrackGeneration()
+#endif
+            let slices = makeTrackSlices(quality: quality)
+            let geometry = makeTrackGeometry(slices: slices)
+#if DEBUG
+            HoneySlideProfiler.endTrackGeneration(generationMeasurement)
+#endif
+            drawBase(in: &context, quality: quality, geometry: geometry)
+            drawFlowingMaterial(in: &context, quality: quality,
+                                floorMask: geometry.honeyFloor)
+            drawFinish(in: &context, quality: quality, slices: slices)
         }
         .frame(width: projection.size.width, height: projection.size.height)
         .clipped()
     }
 
-    private func drawBase(in context: inout GraphicsContext, quality: HoneySlideVisualQuality) {
+    private func drawBase(in context: inout GraphicsContext,
+                          quality: HoneySlideVisualQuality,
+                          geometry: TrackGeometry) {
         drawWoodenSupports(in: &context, quality: quality)
-        drawTrackBody(in: &context, quality: quality)
+        drawTrackBody(in: &context, geometry: geometry)
     }
 
-    private func drawFinish(in context: inout GraphicsContext, quality: HoneySlideVisualQuality) {
+    private func drawFinish(in context: inout GraphicsContext,
+                            quality: HoneySlideVisualQuality,
+                            slices: [TrackSlice]) {
         let wild = 1 - calmness
         drawFlowHighlights(in: &context, wild: wild, quality: quality)
-        drawRailings(in: &context, quality: quality)
-        drawSplitNoses(in: &context, quality: quality)
-        drawHoneyfalls(in: &context)
+        drawRailings(in: &context, slices: slices)
+        drawSplitNoses(in: &context, slices: slices)
+        drawHoneyfalls(in: &context, slices: slices)
         drawHangingShadows(in: &context)
         drawBoatWake(in: &context, wild: wild)
         drawHorizonMist(in: &context)
@@ -437,7 +483,8 @@ private struct RiverWater: View {
     }
 
     private func drawFlowingMaterial(in context: inout GraphicsContext,
-                                     quality: HoneySlideVisualQuality) {
+                                     quality: HoneySlideVisualQuality,
+                                     floorMask: Path) {
         // Keep the generated square material square in screen space; stretching
         // it to portrait made bubbles and swirls look artificially elongated.
         let tile = max(280, projection.size.width * 1.06,
@@ -445,7 +492,7 @@ private struct RiverWater: View {
         let flow = cycle(scroll * 4.2 + CGFloat(clock) * 7.0, tile)
         let x = (projection.size.width - tile) * 0.5
         var materialContext = context
-        materialContext.clip(to: floorMaskPath(quality: quality))
+        materialContext.clip(to: floorMask)
         materialContext.opacity = quality.materialOpacity
         materialContext.blendMode = .softLight
         let texture = materialContext.resolve(Image("HoneySurfaceMaterial"))
@@ -462,6 +509,20 @@ private struct RiverWater: View {
         let outerRight: CGPoint
         let undersideLeft: CGPoint
         let undersideRight: CGPoint
+    }
+
+    private struct TrackSlice {
+        let travel: CGFloat
+        let projected: RiverProjection.ProjectedTrackSample
+        let bands: [TrackBandSection]
+    }
+
+    private struct TrackGeometry {
+        var underbody = Path()
+        var leftWalls = Path()
+        var rightWalls = Path()
+        var honeyFloor = Path()
+        var centerGlow = Path()
     }
 
     private func midpoint(_ a: CGPoint, _ b: CGPoint) -> CGPoint {
@@ -501,12 +562,13 @@ private struct RiverWater: View {
         return (a, b)
     }
 
-    private func sections(at travel: CGFloat) -> [TrackBandSection] {
-        let sample = projection.sample(for: travel)
-        let near = projection.nearness(for: travel)
-        let perspective = projection.scale(for: travel)
-        let y = projection.y(for: travel)
-        return projection.bandEdges(travel: travel).map { band in
+    private func trackSlice(at travel: CGFloat) -> TrackSlice {
+        let projected = projection.projectedSample(for: travel)
+        let sample = projected.track
+        let near = projected.nearness
+        let perspective = projected.scale
+        let y = projected.y
+        let bands = projected.bandEdges.map { band in
             let span = max(1, band.right - band.left)
             let inset = span * (0.090 + 0.030 * near)
             let depth = (7 + 20 * near) * perspective
@@ -524,6 +586,21 @@ private struct RiverWater: View {
                 undersideRight: CGPoint(x: band.right, y: rightY + depth + thickness)
             )
         }
+        return TrackSlice(travel: travel, projected: projected, bands: bands)
+    }
+
+    private func sections(at travel: CGFloat) -> [TrackBandSection] {
+        trackSlice(at: travel).bands
+    }
+
+    private func makeTrackSlices(quality: HoneySlideVisualQuality) -> [TrackSlice] {
+        let steps = quality.floorSteps
+        let far = HoneySlideTuning.visualFarTravel
+        let near = HoneySlideTuning.visualNearTravel
+        return (0...steps).map { index in
+            let travel = far - CGFloat(index) / CGFloat(steps) * (far - near)
+            return trackSlice(at: travel)
+        }
     }
 
     private func quad(_ a: CGPoint, _ b: CGPoint, _ c: CGPoint, _ d: CGPoint) -> Path {
@@ -536,79 +613,48 @@ private struct RiverWater: View {
         return path
     }
 
-    private func floorMaskPath(quality: HoneySlideVisualQuality) -> Path {
-        // The silhouette is the most noticeable part of the slide. Keep more
-        // samples here than in the decorative passes so broad bends remain
-        // round even on tall Pro displays.
-        let steps = quality.floorSteps
-        let far = HoneySlideTuning.visualFarTravel
-        let near = HoneySlideTuning.visualNearTravel
-        var floor = Path()
-        for index in 0..<steps {
-            let aTravel = far - CGFloat(index) / CGFloat(steps) * (far - near)
-            let bTravel = far - CGFloat(index + 1) / CGFloat(steps) * (far - near)
-            let aSample = projection.sample(for: aTravel)
-            let bSample = projection.sample(for: bTravel)
-            guard aSample.hasSurface, bSample.hasSurface else { continue }
-            let matched = matchedSections(sections(at: aTravel), sections(at: bTravel))
+    private func makeTrackGeometry(slices: [TrackSlice]) -> TrackGeometry {
+        var geometry = TrackGeometry()
+        guard slices.count > 1 else { return geometry }
+        for index in 0..<(slices.count - 1) {
+            let aSlice = slices[index]
+            let bSlice = slices[index + 1]
+            guard aSlice.projected.track.hasSurface,
+                  bSlice.projected.track.hasSurface else { continue }
+            let matched = matchedSections(aSlice.bands, bSlice.bands)
             let aBands = matched.0
             let bBands = matched.1
             let count = min(aBands.count, bBands.count)
             for bandIndex in 0..<count {
                 let a = aBands[bandIndex]
                 let b = bBands[bandIndex]
-                floor.addPath(quad(a.floorLeft, a.floorRight,
-                                   b.floorRight, b.floorLeft))
-            }
-        }
-        return floor
-    }
-
-    private func drawTrackBody(in context: inout GraphicsContext,
-                               quality: HoneySlideVisualQuality) {
-        let steps = quality.floorSteps
-        let far = HoneySlideTuning.visualFarTravel
-        let near = HoneySlideTuning.visualNearTravel
-        var underbody = Path()
-        var leftWalls = Path()
-        var rightWalls = Path()
-        var honeyFloor = Path()
-        var centerGlow = Path()
-
-        for index in 0..<steps {
-            let aTravel = far - CGFloat(index) / CGFloat(steps) * (far - near)
-            let bTravel = far - CGFloat(index + 1) / CGFloat(steps) * (far - near)
-            let aSample = projection.sample(for: aTravel)
-            let bSample = projection.sample(for: bTravel)
-            guard aSample.hasSurface, bSample.hasSurface else { continue }
-            let matched = matchedSections(sections(at: aTravel), sections(at: bTravel))
-            let aBands = matched.0
-            let bBands = matched.1
-            let count = min(aBands.count, bBands.count)
-            for bandIndex in 0..<count {
-                let a = aBands[bandIndex]
-                let b = bBands[bandIndex]
-                underbody.addPath(quad(a.outerLeft, a.outerRight,
-                                       b.undersideRight, b.undersideLeft))
-                leftWalls.addPath(quad(a.outerLeft, a.floorLeft,
-                                       b.floorLeft, b.outerLeft))
-                rightWalls.addPath(quad(a.floorRight, a.outerRight,
-                                        b.outerRight, b.floorRight))
-                honeyFloor.addPath(quad(a.floorLeft, a.floorRight,
-                                        b.floorRight, b.floorLeft))
+                geometry.underbody.addPath(quad(a.outerLeft, a.outerRight,
+                                                b.undersideRight, b.undersideLeft))
+                geometry.leftWalls.addPath(quad(a.outerLeft, a.floorLeft,
+                                                b.floorLeft, b.outerLeft))
+                geometry.rightWalls.addPath(quad(a.floorRight, a.outerRight,
+                                                 b.outerRight, b.floorRight))
+                geometry.honeyFloor.addPath(quad(a.floorLeft, a.floorRight,
+                                                 b.floorRight, b.floorLeft))
 
                 let aLeft = a.floorLeft.x + (a.floorRight.x - a.floorLeft.x) * 0.30
                 let aRight = a.floorLeft.x + (a.floorRight.x - a.floorLeft.x) * 0.70
                 let bLeft = b.floorLeft.x + (b.floorRight.x - b.floorLeft.x) * 0.30
                 let bRight = b.floorLeft.x + (b.floorRight.x - b.floorLeft.x) * 0.70
-                centerGlow.addPath(quad(CGPoint(x: aLeft, y: (a.floorLeft.y + a.floorRight.y) * 0.5),
-                                        CGPoint(x: aRight, y: (a.floorLeft.y + a.floorRight.y) * 0.5),
-                                        CGPoint(x: bRight, y: (b.floorLeft.y + b.floorRight.y) * 0.5),
-                                        CGPoint(x: bLeft, y: (b.floorLeft.y + b.floorRight.y) * 0.5)))
+                geometry.centerGlow.addPath(quad(
+                    CGPoint(x: aLeft, y: (a.floorLeft.y + a.floorRight.y) * 0.5),
+                    CGPoint(x: aRight, y: (a.floorLeft.y + a.floorRight.y) * 0.5),
+                    CGPoint(x: bRight, y: (b.floorLeft.y + b.floorRight.y) * 0.5),
+                    CGPoint(x: bLeft, y: (b.floorLeft.y + b.floorRight.y) * 0.5)
+                ))
             }
         }
+        return geometry
+    }
 
-        context.fill(underbody, with: .linearGradient(
+    private func drawTrackBody(in context: inout GraphicsContext,
+                               geometry: TrackGeometry) {
+        context.fill(geometry.underbody, with: .linearGradient(
             Gradient(colors: [
                 Color(red: 0.50, green: 0.22, blue: 0.045),
                 Color(red: 0.31, green: 0.095, blue: 0.018)
@@ -616,17 +662,17 @@ private struct RiverWater: View {
             startPoint: CGPoint(x: projection.centerX, y: projection.horizonY),
             endPoint: CGPoint(x: projection.centerX, y: projection.size.height)
         ))
-        context.fill(leftWalls, with: .linearGradient(
+        context.fill(geometry.leftWalls, with: .linearGradient(
             Gradient(colors: [RiverPaint.body, RiverPaint.trough]),
             startPoint: CGPoint(x: 0, y: 0),
             endPoint: CGPoint(x: projection.size.width, y: 0)
         ))
-        context.fill(rightWalls, with: .linearGradient(
+        context.fill(geometry.rightWalls, with: .linearGradient(
             Gradient(colors: [RiverPaint.trough, RiverPaint.body]),
             startPoint: CGPoint(x: 0, y: 0),
             endPoint: CGPoint(x: projection.size.width, y: 0)
         ))
-        context.fill(honeyFloor, with: .linearGradient(
+        context.fill(geometry.honeyFloor, with: .linearGradient(
             Gradient(stops: [
                 .init(color: Color(red: 1.00, green: 0.78, blue: 0.12), location: 0),
                 .init(color: Color(red: 1.00, green: 0.61, blue: 0.035), location: 0.52),
@@ -635,7 +681,7 @@ private struct RiverWater: View {
             startPoint: CGPoint(x: projection.centerX, y: projection.horizonY),
             endPoint: CGPoint(x: projection.centerX, y: projection.size.height)
         ))
-        context.fill(centerGlow, with: .linearGradient(
+        context.fill(geometry.centerGlow, with: .linearGradient(
             Gradient(colors: [Color.white.opacity(0.10), RiverPaint.gloss.opacity(0.28),
                               Color.white.opacity(0.06)]),
             startPoint: CGPoint(x: projection.size.width * 0.22, y: 0),
@@ -649,7 +695,7 @@ private struct RiverWater: View {
         let count = quality.highlightCount
         for index in 0..<count {
             let seed = hash(index, 211)
-            let moving = cycle(scroll / HoneySlideTuning.lookAheadDistance * 0.88
+            let moving = cycle(scroll / projection.lookAheadDistance * 1.28
                                + seed * 1.45, 1.48)
             let travel = 1.20 - moving
             let sample = projection.sample(for: travel)
@@ -682,7 +728,7 @@ private struct RiverWater: View {
         let count = tight ? 10 : 16
         for index in 0..<count {
             let seed = hash(index, 330)
-            let head = 1.20 - cycle(scroll / HoneySlideTuning.lookAheadDistance * 0.72
+            let head = 1.20 - cycle(scroll / projection.lookAheadDistance * 1.08
                                     + seed * 1.48, 1.52)
             let length = 0.09 + hash(index, 331) * 0.16
             let across = 0.12 + hash(index, 332) * 0.76
@@ -720,19 +766,17 @@ private struct RiverWater: View {
     }
 
     private func drawRailings(in context: inout GraphicsContext,
-                              quality: HoneySlideVisualQuality) {
-        let steps = quality.railSteps
-        let far = HoneySlideTuning.visualFarTravel
-        let near = HoneySlideTuning.visualNearTravel
-        for index in 0..<steps {
-            let aTravel = far - CGFloat(index) / CGFloat(steps) * (far - near)
-            let bTravel = far - CGFloat(index + 1) / CGFloat(steps) * (far - near)
-            let aSample = projection.sample(for: aTravel)
-            let bSample = projection.sample(for: bTravel)
+                              slices: [TrackSlice]) {
+        guard slices.count > 1 else { return }
+        for index in 0..<(slices.count - 1) {
+            let aSlice = slices[index]
+            let bSlice = slices[index + 1]
+            let aSample = aSlice.projected.track
+            let bSample = bSlice.projected.track
             guard aSample.hasSurface, bSample.hasSurface else { continue }
             let railPresence = (aSample.railVisibility + bSample.railVisibility) * 0.5
             guard railPresence > 0.015 else { continue }
-            let matched = matchedSections(sections(at: aTravel), sections(at: bTravel))
+            let matched = matchedSections(aSlice.bands, bSlice.bands)
             let aBands = matched.0
             let bBands = matched.1
             let count = min(aBands.count, bBands.count)
@@ -748,11 +792,11 @@ private struct RiverWater: View {
                         ? pow(aSample.splitAmount, 0.85) : 1
                     let innerFactorB: CGFloat = isInnerRail
                         ? pow(bSample.splitAmount, 0.85) : 1
-                    let liftA = (2 + 9 * projection.nearness(for: aTravel))
-                        * projection.scale(for: aTravel) * (aSample.railHeight / 0.13)
+                    let liftA = (2 + 9 * aSlice.projected.nearness)
+                        * aSlice.projected.scale * (aSample.railHeight / 0.13)
                         * innerFactorA * aSample.railVisibility
-                    let liftB = (2 + 9 * projection.nearness(for: bTravel))
-                        * projection.scale(for: bTravel) * (bSample.railHeight / 0.13)
+                    let liftB = (2 + 9 * bSlice.projected.nearness)
+                        * bSlice.projected.scale * (bSample.railHeight / 0.13)
                         * innerFactorB * bSample.railVisibility
                     start.y -= liftA
                     end.y -= liftB
@@ -761,8 +805,8 @@ private struct RiverWater: View {
                     rail.addLine(to: end)
                     let dividerWidth = isInnerRail ? max(0.12, innerFactorB) : 1
                     let width = max(isInnerRail ? 0.45 : 2.2,
-                                    (3 + 7 * projection.nearness(for: bTravel))
-                                    * projection.scale(for: bTravel) * dividerWidth
+                                    (3 + 7 * bSlice.projected.nearness)
+                                    * bSlice.projected.scale * dividerWidth
                                     * max(0.16, railPresence))
                     context.stroke(rail, with: .color(Color.black.opacity(0.34 * Double(railPresence))),
                                    style: StrokeStyle(lineWidth: width * 1.72,
@@ -791,62 +835,59 @@ private struct RiverWater: View {
         let count = quality.supportCount
         for index in 0..<count {
             let travel = 1.08 - CGFloat(index) / CGFloat(max(1, count - 1)) * 1.18
-            let sample = projection.sample(for: travel)
+            let slice = trackSlice(at: travel)
+            let sample = slice.projected.track
             guard sample.hasSurface, sample.kind != .landing else { continue }
-            let y = projection.y(for: travel)
-            let drop = (24 + 54 * projection.nearness(for: travel)) * projection.scale(for: travel)
-            let inset = max(2, 5 * projection.scale(for: travel))
-            for band in projection.bandEdges(travel: travel) {
-                let left = band.left + inset
-                let right = band.right - inset
+            let y = slice.projected.y
+            let drop = (24 + 54 * slice.projected.nearness) * slice.projected.scale
+            let inset = max(2, 5 * slice.projected.scale)
+            for band in slice.bands {
+                let left = band.outerLeft.x + inset
+                let right = band.outerRight.x - inset
                 for x in [left, right] {
                     var post = Path()
                     post.move(to: CGPoint(x: x, y: y + 3))
                     post.addLine(to: CGPoint(x: x, y: y + drop))
                     context.stroke(post, with: .color(Color.black.opacity(0.30)),
-                                   style: StrokeStyle(lineWidth: max(2.2, 6 * projection.scale(for: travel)),
+                                   style: StrokeStyle(lineWidth: max(2.2, 6 * slice.projected.scale),
                                                       lineCap: .round))
                     context.stroke(post, with: .color(RiverPaint.wood.opacity(0.70)),
-                                   style: StrokeStyle(lineWidth: max(1.4, 4 * projection.scale(for: travel)),
+                                   style: StrokeStyle(lineWidth: max(1.4, 4 * slice.projected.scale),
                                                       lineCap: .round))
                 }
                 var crossBeam = Path()
                 crossBeam.move(to: CGPoint(x: left, y: y + drop * 0.45))
                 crossBeam.addLine(to: CGPoint(x: right, y: y + drop * 0.45))
                 context.stroke(crossBeam, with: .color(Color.black.opacity(0.24)),
-                               style: StrokeStyle(lineWidth: max(2, 5 * projection.scale(for: travel)),
+                               style: StrokeStyle(lineWidth: max(2, 5 * slice.projected.scale),
                                                   lineCap: .round))
                 context.stroke(crossBeam, with: .color(RiverPaint.wood.opacity(0.62)),
-                               style: StrokeStyle(lineWidth: max(1, 3 * projection.scale(for: travel)),
+                               style: StrokeStyle(lineWidth: max(1, 3 * slice.projected.scale),
                                                   lineCap: .round))
                 var brace = Path()
                 brace.move(to: CGPoint(x: left, y: y + drop))
                 brace.addLine(to: CGPoint(x: right, y: y + 4))
                 context.stroke(brace, with: .color(RiverPaint.lightWood.opacity(0.52)),
-                               style: StrokeStyle(lineWidth: max(1, 2.5 * projection.scale(for: travel))))
+                               style: StrokeStyle(lineWidth: max(1, 2.5 * slice.projected.scale)))
             }
         }
     }
 
     private func drawSplitNoses(in context: inout GraphicsContext,
-                                quality: HoneySlideVisualQuality) {
-        let steps = quality.splitNoseSteps
-        let far = HoneySlideTuning.visualFarTravel
-        let near = HoneySlideTuning.visualNearTravel
-        for index in 0..<steps {
-            let aTravel = far - CGFloat(index) / CGFloat(steps) * (far - near)
-            let bTravel = far - CGFloat(index + 1) / CGFloat(steps) * (far - near)
-            let aSections = sections(at: aTravel)
-            let bSections = sections(at: bTravel)
+                                slices: [TrackSlice]) {
+        guard slices.count > 1 else { return }
+        for index in 0..<(slices.count - 1) {
+            let aSections = slices[index].bands
+            let bSections = slices[index + 1].bands
             guard aSections.count != bSections.count else { continue }
-            let splitTravel = aSections.count == 2 ? aTravel : bTravel
+            let splitSlice = aSections.count == 2 ? slices[index] : slices[index + 1]
             let branches = aSections.count == 2 ? aSections : bSections
             guard branches.count == 2 else { continue }
             let leftTip = branches[0].outerRight
             let rightTip = branches[1].outerLeft
             let center = midpoint(leftTip, rightTip)
-            let scale = projection.scale(for: splitTravel)
-            let radius = max(1.8, (3.4 + 5 * projection.nearness(for: splitTravel)) * scale)
+            let scale = splitSlice.projected.scale
+            let radius = max(1.8, (3.4 + 5 * splitSlice.projected.nearness) * scale)
             let shadowRect = CGRect(x: center.x - radius * 1.22,
                                     y: center.y - radius * 0.72,
                                     width: radius * 2.44,
@@ -865,20 +906,19 @@ private struct RiverWater: View {
         }
     }
 
-    private func drawHoneyfalls(in context: inout GraphicsContext) {
-        let steps = 42
-        for index in 0..<steps {
-            let travel = 1.15 - CGFloat(index) / CGFloat(steps) * 1.28
-            let next = travel - 1.28 / CGFloat(steps)
-            let here = projection.sample(for: travel)
-            let there = projection.sample(for: next)
-            guard here.hasSurface != there.hasSurface else { continue }
-            let edgeTravel = here.hasSurface ? travel : next
-            for band in sections(at: edgeTravel) {
+    private func drawHoneyfalls(in context: inout GraphicsContext,
+                                slices: [TrackSlice]) {
+        guard slices.count > 1 else { return }
+        for index in 0..<(slices.count - 1) {
+            let here = slices[index]
+            let there = slices[index + 1]
+            guard here.projected.track.hasSurface != there.projected.track.hasSurface else { continue }
+            let edge = here.projected.track.hasSurface ? here : there
+            for band in edge.bands {
                 let left = band.outerLeft
                 let right = band.outerRight
                 let y = (left.y + right.y) * 0.5
-                let drip = 14 + 48 * projection.nearness(for: edgeTravel)
+                let drip = 14 + 48 * edge.projected.nearness
                 for strand in 0..<5 {
                     let t = CGFloat(strand) / 4
                     let x = left.x + (right.x - left.x) * t
@@ -888,14 +928,14 @@ private struct RiverWater: View {
                                   control1: CGPoint(x: x + 3, y: y + drip * 0.35),
                                   control2: CGPoint(x: x - 2, y: y + drip * 0.72))
                     context.stroke(fall, with: .color(RiverPaint.body.opacity(0.72)),
-                                   style: StrokeStyle(lineWidth: max(1.2, 3 * projection.scale(for: edgeTravel)),
+                                   style: StrokeStyle(lineWidth: max(1.2, 3 * edge.projected.scale),
                                                       lineCap: .round))
                 }
 
                 // A layered rounded lip hides the polygon edge and makes the
                 // take-off and landing read like one thick, viscous material.
-                let scale = projection.scale(for: edgeTravel)
-                let width = max(1.5, (2.4 + 4.4 * projection.nearness(for: edgeTravel)) * scale)
+                let scale = edge.projected.scale
+                let width = max(1.5, (2.4 + 4.4 * edge.projected.nearness) * scale)
                 let bulge = max(1.5, width * 0.34)
                 var lip = Path()
                 lip.move(to: left)

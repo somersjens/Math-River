@@ -86,6 +86,8 @@ struct RiverSplash: Identifiable, Equatable {
     var vy: CGFloat
     var scale: CGFloat
     var honey: Bool
+
+    var isActive: Bool { life > 0 && age <= life }
 }
 
 struct RiverReward: Identifiable, Equatable {
@@ -127,7 +129,12 @@ private enum RiverFormation {
 @MainActor
 final class MathRiverArena: ObservableObject {
     @Published private(set) var pots: [RiverPot] = []
-    @Published private(set) var splashes: [RiverSplash] = []
+    /// Stable identities remove the append/UUID/remove churn that previously
+    /// happened throughout play. Inactive entries stay dormant in this pool.
+    @Published private(set) var splashes: [RiverSplash] = (0..<HoneySlideTuning.splashPoolCapacity).map { _ in
+        RiverSplash(id: UUID(), age: 1, life: 0, x: 0, y: 0,
+                    vx: 0, vy: 0, scale: 0, honey: true)
+    }
     @Published private(set) var rewards: [RiverReward] = []
     @Published private(set) var decor: [RiverDecor] = []
     @Published private(set) var targetLateral: CGFloat = 0
@@ -137,6 +144,7 @@ final class MathRiverArena: ObservableObject {
     @Published private(set) var landingImpact: CGFloat = 0
     @Published private(set) var clock: Double = 0
     @Published private(set) var scroll: CGFloat = 0
+    @Published private(set) var currentSlideSpeed: CGFloat = HoneySlideTuning.nominalSlideSpeed
     @Published private(set) var boatRoll: Double = 0
     @Published private(set) var boatBob: CGFloat = 0
     @Published private(set) var current: CGFloat = 1
@@ -173,7 +181,6 @@ final class MathRiverArena: ObservableObject {
     private var waveFinishing = false
     private var isReeling = false
     private var gapRemaining: Double = 0
-    private var travelSpeed: CGFloat = 1 / CGFloat(GameConfig.riverApproachDuration)
     private var isLive = false
     private var isRunning = false
     private var reduceMotion = false
@@ -383,7 +390,8 @@ final class MathRiverArena: ObservableObject {
         }
         let options = round.options
         let checkpointDistance = HoneySlideRoute.verticalSlice.nextSafeAnswerDistance(after: scroll)
-        let checkpointTravel = (checkpointDistance - scroll) / HoneySlideTuning.lookAheadDistance
+        let checkpointTravel = (checkpointDistance - scroll)
+            / HoneySlideTuning.cameraLookAheadDistance(for: currentSlideSpeed)
         let checkpointOffsets = HoneySlideRoute.verticalSlice.sample(at: checkpointDistance).answerOffsets
         var pots: [RiverPot] = []
         for (index, option) in options.enumerated() {
@@ -416,7 +424,6 @@ final class MathRiverArena: ObservableObject {
         reelLift = 0
         grabReach = 0
         gapRemaining = 0
-        travelSpeed = 1 / CGFloat(GameConfig.riverApproachDuration)
     }
 
     /// Each cub sits next to its own jar and stays there. Redistributing seats
@@ -534,32 +541,22 @@ final class MathRiverArena: ObservableObject {
         clock += dt
         current = 1 + CGFloat(sin(clock * 2.1)) * 0.04 * (1 - calmness)
         let beforeAdvance = HoneySlideRoute.verticalSlice.sample(at: scroll)
+        let slopeShare = min(1, max(0, beforeAdvance.downhillSlope / (.pi * 0.22)))
+        let downhillBonus = 1 + slopeShare * HoneySlideTuning.maximumDownhillSpeedBonus
         let pace = CGFloat(1.0 - 0.68 * Double(calmness)) * current
-            * beforeAdvance.speedMultiplier
+            * beforeAdvance.speedMultiplier * downhillBonus
+        currentSlideSpeed = HoneySlideTuning.nominalSlideSpeed * pace
 #if DEBUG
         // Keep the direct visual-QA entry point on the authored opening shot.
         // The simulation and entrance still run, so character motion, flow and
         // particles can be inspected without the capture drifting into a
         // different segment while simctl writes the screenshot.
         if !HoneySlidePreviewMode.freezesMotion {
-            scroll += CGFloat(dt) * HoneySlideTuning.forwardSpeed * pace
+            scroll += CGFloat(dt) * currentSlideSpeed
         }
 #else
-        scroll += CGFloat(dt) * HoneySlideTuning.forwardSpeed * pace
+        scroll += CGFloat(dt) * currentSlideSpeed
 #endif
-
-        // Keep the phase numerically stable during long sessions. Because the
-        // authored route closes in center, elevation and width, this wrap is
-        // visually indistinguishable and can repeat indefinitely.
-        let routeLength = HoneySlideRoute.verticalSlice.totalLength
-        if scroll >= routeLength {
-            scroll.formTruncatingRemainder(dividingBy: routeLength)
-#if DEBUG
-            if HoneySlidePreviewMode.isActive && !HoneySlidePreviewMode.freezesMotion {
-                print("[HoneySlide QA] completed route loop; phase=\(scroll); clock=\(clock); length=\(routeLength)")
-            }
-#endif
-        }
 
         let sample = HoneySlideRoute.verticalSlice.sample(at: scroll)
         if sample.kind == .split,
@@ -645,7 +642,11 @@ final class MathRiverArena: ObservableObject {
 
     private func tickPots(dt: Double) {
         guard !pots.isEmpty || waveFinishing else { return }
-        let step = travelSpeed * CGFloat(dt)
+        // Answer timing is time-based too: changing forward speed grows the
+        // preview distance, while the decision window stays predictable.
+        let step = currentSlideSpeed
+            / HoneySlideTuning.cameraLookAheadDistance(for: currentSlideSpeed)
+            * CGFloat(dt)
         let duration = reduceMotion ? RiverConfig.reelDurationReduced : RiverConfig.reelDuration
         let grabDuration = reduceMotion ? RiverConfig.grabDurationReduced : RiverConfig.grabDuration
         if isReeling {
@@ -735,12 +736,11 @@ final class MathRiverArena: ObservableObject {
 
     private func tickEffects(dt: Double) {
         let gravity: CGFloat = 980
-        for i in splashes.indices.reversed() {
+        for i in splashes.indices where splashes[i].isActive {
             splashes[i].age += dt
             splashes[i].vy += gravity * CGFloat(dt)
             splashes[i].x += splashes[i].vx * CGFloat(dt)
             splashes[i].y += splashes[i].vy * CGFloat(dt)
-            if splashes[i].age > splashes[i].life { splashes.remove(at: i) }
         }
         for i in rewards.indices.reversed() {
             rewards[i].age += dt
@@ -756,8 +756,6 @@ final class MathRiverArena: ObservableObject {
             if !reduceMotion, visualQuality != .constrained {
                 emitDroplet(nearBoat: true, honey: true)
             }
-            let limit = visualQuality.splashLimit
-            if splashes.count > limit { splashes.removeFirst(splashes.count - limit) }
         }
     }
 
@@ -770,7 +768,7 @@ final class MathRiverArena: ObservableObject {
         if let flying {
             let t = min(max(flying.grabFlight, 0), 1)
             grabReach = CGFloat(sin(Double(t) * .pi))
-            let projection = RiverProjection(size: size, phase: scroll)
+            let projection = RiverProjection(size: size, phase: scroll, speed: currentSlideSpeed)
             let water = projection.point(lateral: flying.lateral, travel: flying.travel)
             let hang = CGPoint(
                 x: water.x,
@@ -819,23 +817,23 @@ final class MathRiverArena: ObservableObject {
     }
 
     private func emitDroplet(nearBoat: Bool = false, at point: CGPoint? = nil, honey: Bool, burst: Bool = false) {
-        let hull = point ?? RiverProjection(size: size, phase: scroll)
+        let hull = point ?? RiverProjection(size: size, phase: scroll, speed: currentSlideSpeed)
             .point(lateral: displayLateral + CGFloat.random(in: -0.28...0.28),
                    travel: CGFloat.random(in: -0.02...0.06))
         let side: CGFloat = Bool.random() ? 1 : -1
         let up = burst ? CGFloat.random(in: 220...520) : CGFloat.random(in: 160...380)
         let out = burst ? CGFloat.random(in: 40...180) : CGFloat.random(in: 20...140)
-        splashes.append(RiverSplash(
-            id: UUID(),
-            age: 0,
-            life: burst ? 0.70 : Double.random(in: 0.40...0.65),
-            x: hull.x + CGFloat.random(in: -18...18),
-            y: hull.y + CGFloat.random(in: -8...12),
-            vx: side * out * (nearBoat ? 1 : 0.85),
-            vy: -up,
-            scale: (burst ? 0.9 : 0.55) + CGFloat.random(in: 0...0.55),
-            honey: honey
-        ))
+        let slot = splashes.firstIndex(where: { !$0.isActive })
+            ?? splashes.indices.max(by: { splashes[$0].age < splashes[$1].age })
+            ?? splashes.startIndex
+        splashes[slot].age = 0
+        splashes[slot].life = burst ? 0.70 : Double.random(in: 0.40...0.65)
+        splashes[slot].x = hull.x + CGFloat.random(in: -18...18)
+        splashes[slot].y = hull.y + CGFloat.random(in: -8...12)
+        splashes[slot].vx = side * out * (nearBoat ? 1 : 0.85)
+        splashes[slot].vy = -up
+        splashes[slot].scale = (burst ? 0.9 : 0.55) + CGFloat.random(in: 0...0.55)
+        splashes[slot].honey = honey
     }
 
     private func emitReward(from point: CGPoint) {
@@ -844,8 +842,36 @@ final class MathRiverArena: ObservableObject {
     }
 
     func project(lateral: CGFloat, travel: CGFloat) -> CGPoint {
-        RiverProjection(size: size, phase: scroll).point(lateral: lateral, travel: travel)
+        RiverProjection(size: size, phase: scroll, speed: currentSlideSpeed)
+            .point(lateral: lateral, travel: travel)
     }
+
+#if DEBUG
+    var debugPerformanceText: String {
+        let route = HoneySlideRoute.verticalSlice
+        let sample = route.sample(at: scroll)
+        let fps = frameIntervalEMA > 0 ? 1 / frameIntervalEMA : 0
+        let ready = HoneySlideTuning.generationLookAheadDistance(for: currentSlideSpeed)
+        return String(format: "FPS %.0f   %.1f ms\nSpeed %.1f   slope %.1f°\nElevation %.1f   ready %.0f m (%.1f s)\nSegments %d active / %d cached\nRuntime alloc 0   pooled seg 0\nTrack gen %.2f ms   particles %d pooled",
+                      fps, frameIntervalEMA * 1_000,
+                      currentSlideSpeed, sample.downhillSlope * 180 / .pi,
+                      sample.elevation, ready, HoneySlideTuning.generationLookAheadSeconds,
+                      activeSegmentCount(ahead: ready), route.segments.count,
+                      HoneySlideProfiler.latestTrackGenerationMilliseconds, splashes.count)
+    }
+
+    private func activeSegmentCount(ahead distance: CGFloat) -> Int {
+        let route = HoneySlideRoute.verticalSlice
+        var ids = Set<String>()
+        let step: CGFloat = 4
+        var cursor: CGFloat = 0
+        while cursor <= distance {
+            ids.insert(route.sample(at: scroll + cursor).segmentID)
+            cursor += step
+        }
+        return ids.count
+    }
+#endif
 }
 
 // MARK: - Perspective
@@ -853,13 +879,56 @@ final class MathRiverArena: ObservableObject {
 struct RiverProjection {
     let size: CGSize
     /// Absolute progress through the authored segment timeline.
-    var phase: CGFloat = 0
+    let phase: CGFloat
+    let speed: CGFloat
+    let lookAheadDistance: CGFloat
+
+    private let currentSample: HoneyTrackSample
+    private let anticipationCenter: CGFloat
 
     private var route: HoneySlideRoute { .verticalSlice }
 
-    var horizonY: CGFloat { size.height * 0.125 }
-    var boatY: CGFloat { size.height * 0.805 }
+    init(size: CGSize,
+         phase: CGFloat = 0,
+         speed: CGFloat = HoneySlideTuning.nominalSlideSpeed) {
+        self.size = size
+        self.phase = phase
+        self.speed = speed
+        lookAheadDistance = HoneySlideTuning.cameraLookAheadDistance(for: speed)
+        let route = HoneySlideRoute.verticalSlice
+        let current = route.sample(at: phase)
+        currentSample = current
+        let aimDistance = speed * HoneySlideTuning.cameraAimSeconds
+            * current.cameraLookAhead
+        anticipationCenter = (route.sample(at: phase + aimDistance).center - current.center) * 0.18
+    }
+
+    var horizonY: CGFloat { size.height * 0.15 }
+    var boatY: CGFloat { size.height * 0.82 }
     var centerX: CGFloat { size.width * 0.5 }
+
+    struct ProjectedTrackSample {
+        let track: HoneyTrackSample
+        let nearness: CGFloat
+        let scale: CGFloat
+        let y: CGFloat
+        let center: CGFloat
+        let halfWidth: CGFloat
+
+        var bandEdges: [(left: CGFloat, right: CGFloat)] {
+            guard track.splitAmount > 0.055 else {
+                return [(center - halfWidth, center + halfWidth)]
+            }
+            let raw = min(max((track.splitAmount - 0.055) / 0.945, 0), 1)
+            let split = raw * raw * (3 - 2 * raw)
+            let branchHalf = halfWidth * (0.50 - 0.06 * split)
+            let offset = halfWidth * (0.50 + 0.06 * split)
+            return [
+                (center - offset - branchHalf, center - offset + branchHalf),
+                (center + offset - branchHalf, center + offset + branchHalf)
+            ]
+        }
+    }
 
     /// 0 at the far water, 1 at the boat. Same far plane as `y`, so size and
     /// position stay in step and the approach never eases off near the hull.
@@ -872,8 +941,7 @@ struct RiverProjection {
         return base * (1 - 0.42 * beyondHorizonProgress(for: travel))
     }
 
-    func y(for travel: CGFloat) -> CGFloat {
-        let base: CGFloat
+    private func baseY(for travel: CGFloat) -> CGFloat {
         if travel >= 0 {
             let far = RiverConfig.farTravel
             let t = min(travel, far) / far
@@ -885,15 +953,40 @@ struct RiverProjection {
                 let extensionProgress = beyondHorizonProgress(for: travel)
                 y = horizonY - (horizonY + size.height * 0.06) * extensionProgress
             }
-            base = y
+            return y
         } else {
             let past = min(1, -travel / 0.42)
-            base = boatY + (size.height - boatY) * past
+            return boatY + (size.height - boatY) * past
         }
-        let here = route.sample(at: phase).elevation
-        let there = sample(for: travel).elevation
-        let elevationShift = (there - here) * size.height * 0.012 * scale(for: travel)
-        return base - elevationShift
+    }
+
+    /// One route lookup produces every screen-space value needed by a track
+    /// cross-section. Canvas passes share these projected sections instead of
+    /// recursively re-sampling center, elevation, width and split topology.
+    func projectedSample(for travel: CGFloat) -> ProjectedTrackSample {
+        let track = sample(for: travel)
+        let near = nearness(for: travel)
+        let perspective = scale(for: travel)
+        let elevationShift = (track.elevation - currentSample.elevation)
+            * size.height * 0.015 * perspective
+        let meander = (track.center - currentSample.center - anticipationCenter)
+            * size.width * 0.40
+        let distantTaper = 1 - 0.58 * beyondHorizonProgress(for: travel)
+        let speedFOV = 1 - min(0.07, max(0, speed / HoneySlideTuning.nominalSlideSpeed - 1) * 0.20)
+        let halfWidth = size.width * (0.060 + 0.33 * pow(near, 1.35))
+            * track.width * distantTaper * speedFOV
+        return ProjectedTrackSample(
+            track: track,
+            nearness: near,
+            scale: perspective,
+            y: baseY(for: travel) - elevationShift,
+            center: centerX + meander,
+            halfWidth: halfWidth
+        )
+    }
+
+    func y(for travel: CGFloat) -> CGFloat {
+        projectedSample(for: travel).y
     }
 
     func bankX(side: Int, travel: CGFloat) -> CGFloat {
@@ -904,26 +997,15 @@ struct RiverProjection {
     }
 
     func meander(for travel: CGFloat) -> CGFloat {
-        let current = route.sample(at: phase)
-        let here = current.center
-        let there = sample(for: travel).center
-        // Pan gently toward the next bend. Authored multipliers increase this
-        // on splits, descents and jumps so hazards enter frame early enough to
-        // read without making the camera feel detached from the rider.
-        let aim = route.sample(at: phase + 18 * current.cameraLookAhead).center
-        let anticipation = (aim - here) * 0.15
-        return (there - here - anticipation) * size.width * 0.36
+        projectedSample(for: travel).center - centerX
     }
 
     func sample(for travel: CGFloat) -> HoneyTrackSample {
-        route.sample(at: phase + travel * HoneySlideTuning.lookAheadDistance)
+        route.sample(at: phase + travel * lookAheadDistance)
     }
 
     func halfWidth(travel: CGFloat) -> CGFloat {
-        let near = nearness(for: travel)
-        let distantTaper = 1 - 0.54 * beyondHorizonProgress(for: travel)
-        return size.width * (0.235 + 0.20 * near)
-            * sample(for: travel).width * distantTaper
+        projectedSample(for: travel).halfWidth
     }
 
     /// Smooth 0...1 continuation from the perspective horizon to the hidden
@@ -935,30 +1017,34 @@ struct RiverProjection {
     }
 
     func x(lateral: CGFloat, travel: CGFloat) -> CGFloat {
-        centerX + meander(for: travel)
-            + lateral * halfWidth(travel: travel) * 0.82
+        let projected = projectedSample(for: travel)
+        return projected.center + lateral * projected.halfWidth * 0.82
     }
 
     func point(lateral: CGFloat, travel: CGFloat) -> CGPoint {
-        CGPoint(x: x(lateral: lateral, travel: travel), y: y(for: travel))
+        let projected = projectedSample(for: travel)
+        return CGPoint(x: projected.center + lateral * projected.halfWidth * 0.82,
+                       y: projected.y)
     }
 
     func riverLeft(travel: CGFloat) -> CGFloat {
-        riverLeftStable(travel: travel) + meander(for: travel)
+        riverLeftStable(travel: travel)
     }
 
     func riverRight(travel: CGFloat) -> CGFloat {
-        riverRightStable(travel: travel) + meander(for: travel)
+        riverRightStable(travel: travel)
     }
 
     /// Bank edge without the flowing wiggle, so a sitting cub does not slide
     /// inland and out again as the current scrolls.
     func riverLeftStable(travel: CGFloat) -> CGFloat {
-        centerX + meander(for: travel) - halfWidth(travel: travel)
+        let projected = projectedSample(for: travel)
+        return projected.center - projected.halfWidth
     }
 
     func riverRightStable(travel: CGFloat) -> CGFloat {
-        centerX + meander(for: travel) + halfWidth(travel: travel)
+        let projected = projectedSample(for: travel)
+        return projected.center + projected.halfWidth
     }
 
     func riverWidth(travel: CGFloat) -> CGFloat {
@@ -973,26 +1059,15 @@ struct RiverProjection {
     }
 
     func pointAcross(_ t: CGFloat, travel: CGFloat) -> CGPoint {
-        CGPoint(x: across(t, travel: travel), y: y(for: travel))
+        let projected = projectedSample(for: travel)
+        let left = projected.center - projected.halfWidth
+        return CGPoint(x: left + projected.halfWidth * 2 * t, y: projected.y)
     }
 
     /// One band on normal track, two gradually separating bands through a
     /// split/branch/merge. Values are physical screen-space edges.
     func bandEdges(travel: CGFloat) -> [(left: CGFloat, right: CGFloat)] {
-        let track = sample(for: travel)
-        let half = halfWidth(travel: travel)
-        let center = centerX + meander(for: travel)
-        guard track.splitAmount > 0.055 else {
-            return [(center - half, center + half)]
-        }
-        let rawSplit = min(max((track.splitAmount - 0.055) / 0.945, 0), 1)
-        let split = rawSplit * rawSplit * (3 - 2 * rawSplit)
-        let branchHalf = half * (0.50 - 0.06 * split)
-        let offset = half * (0.50 + 0.06 * split)
-        return [
-            (center - offset - branchHalf, center - offset + branchHalf),
-            (center + offset - branchHalf, center + offset + branchHalf)
-        ]
+        projectedSample(for: travel).bandEdges
     }
 
     func riverPath() -> Path {
