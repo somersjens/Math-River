@@ -43,7 +43,8 @@ struct MathRiverPlayfield: View {
             let size = proxy.size
             let projection = RiverProjection(size: size,
                                              phase: arena.scroll,
-                                             speed: arena.currentSlideSpeed)
+                                             speed: arena.currentSlideSpeed,
+                                             focusLateral: arena.cameraLateral)
 
             ZStack(alignment: .topLeading) {
                 RiverWorld(character: character,
@@ -143,7 +144,9 @@ private struct RiverWorld: View {
                                      groupDismissal: arena.reelLift)
                     .zIndex(pot.travel > 0.08 ? Double(4 - pot.travel) : Double(16 - pot.travel))
             }
+            playerContactUnderlay
             boatLayer
+            playerContactLip
             splashes
                 .zIndex(31)
             rewards
@@ -152,6 +155,13 @@ private struct RiverWorld: View {
             if HoneySlideDebugState.enabled {
                 HoneySlidePerformanceOverlay(text: arena.debugPerformanceText)
                     .zIndex(100)
+            }
+            if HoneySlideDebugState.contactEnabled {
+                HoneySlideContactDebugLayer(projection: projection,
+                                            lateral: arena.displayLateral,
+                                            spriteSize: playerSize,
+                                            visualBounce: -arena.boatBob * playerSize)
+                    .zIndex(101)
             }
 #endif
         }
@@ -178,22 +188,80 @@ private struct RiverWorld: View {
                    calmness: arena.calmness)
     }
 
+    private var playerSize: CGFloat {
+        RiverConfig.boatSize(isPad: isPad) * 1.13
+    }
+
+    private var playerContactUnderlay: some View {
+        let surface = projection.playerSurface(lateral: arena.displayLateral)
+        let size = playerSize
+        let presence = max(0, 1 - arena.entrance)
+        return ZStack {
+            Ellipse()
+                .fill(Color(red: 0.30, green: 0.10, blue: 0.015).opacity(0.34))
+                .blur(radius: 1.2)
+            Ellipse()
+                .stroke(Color(red: 1.00, green: 0.75, blue: 0.08).opacity(0.78),
+                        lineWidth: max(2, size * 0.027))
+        }
+        .frame(width: size * 0.78, height: size * 0.17)
+        .rotationEffect(.degrees(surface.surfaceRollDegrees))
+        .position(surface.contactPoint)
+        .opacity(surface.trackWidth > 0 && projection.sample(for: 0).hasSurface
+                 ? Double(presence * (1 - arena.jumpLift * 5)) : 0)
+        .allowsHitTesting(false)
+        .zIndex(9)
+    }
+
     private var boatLayer: some View {
-        let point = projection.point(lateral: arena.displayLateral, travel: 0)
+        let surface = projection.playerSurface(lateral: arena.displayLateral)
         // The rider is the foreground anchor in the mock-up. A slightly
         // larger silhouette also makes steering readable against the rich
         // honey surface without changing the collision model.
-        let size = RiverConfig.boatSize(isPad: isPad) * 1.13
+        let size = playerSize
+        let rideHeight = size * HoneySlideTuning.playerRideHeightFraction
+        let point = surface.visualPoint(rideHeight: rideHeight,
+                                        bounce: -arena.boatBob * size)
         return Image("1_main_honey")
             .resizable()
             .interpolation(.high)
             .scaledToFit()
             .frame(width: size, height: size * 1.15)
-            .rotationEffect(.degrees(arena.boatRoll))
+            .rotation3DEffect(.degrees(arena.boatPitch), axis: (x: 1, y: 0, z: 0),
+                              perspective: 0.28)
+            .rotationEffect(.degrees(surface.surfaceRollDegrees + arena.boatRoll))
             .scaleEffect(1 + arena.jumpLift * 0.55 + arena.landingImpact * 0.025)
             .position(x: point.x,
-                      y: point.y + arena.boatBob * size + arena.entrance * size * 1.6)
+                      y: point.y + arena.entrance * size * 1.6)
             .zIndex(10)
+    }
+
+    private var playerContactLip: some View {
+        let surface = projection.playerSurface(lateral: arena.displayLateral)
+        let size = playerSize
+        let presence = max(0, 1 - arena.entrance)
+        return Path { path in
+            path.move(to: CGPoint(x: 0, y: size * 0.005))
+            path.addQuadCurve(to: CGPoint(x: size * 0.76, y: size * 0.005),
+                              control: CGPoint(x: size * 0.38, y: size * 0.13))
+        }
+        .stroke(
+            LinearGradient(colors: [
+                Color(red: 0.90, green: 0.42, blue: 0.015),
+                Color(red: 1.00, green: 0.76, blue: 0.08),
+                Color(red: 0.90, green: 0.42, blue: 0.015)
+            ], startPoint: .leading, endPoint: .trailing),
+            style: StrokeStyle(lineWidth: size * HoneySlideTuning.playerImmersionFraction,
+                               lineCap: .round)
+        )
+        .frame(width: size * 0.76, height: size * 0.15)
+        .rotationEffect(.degrees(surface.surfaceRollDegrees))
+        .position(x: surface.contactPoint.x,
+                  y: surface.contactPoint.y + size * 0.015)
+        .opacity(projection.sample(for: 0).hasSurface
+                 ? Double(presence * (1 - arena.jumpLift * 5)) : 0)
+        .allowsHitTesting(false)
+        .zIndex(11)
     }
 
     private var splashes: some View {
@@ -256,6 +324,80 @@ private struct HoneySlidePerformanceOverlay: View {
         .padding(.top, 46)
         .padding(.horizontal, 10)
         .allowsHitTesting(false)
+    }
+}
+
+private struct HoneySlideContactDebugLayer: View {
+    let projection: RiverProjection
+    let lateral: CGFloat
+    let spriteSize: CGFloat
+    let visualBounce: CGFloat
+
+    private var surface: RiverProjection.ProjectedPlayerSurface {
+        projection.playerSurface(lateral: lateral)
+    }
+
+    private var visualPoint: CGPoint {
+        surface.visualPoint(
+            rideHeight: spriteSize * HoneySlideTuning.playerRideHeightFraction,
+            bounce: visualBounce
+        )
+    }
+
+    var body: some View {
+        ZStack(alignment: .bottomLeading) {
+            Canvas { context, _ in
+                let contact = surface.contactPoint
+                let visual = visualPoint
+                var normal = Path()
+                normal.move(to: contact)
+                normal.addLine(to: CGPoint(x: contact.x + surface.screenNormal.dx * 64,
+                                           y: contact.y + surface.screenNormal.dy * 64))
+                context.stroke(normal, with: .color(.cyan),
+                               style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+
+                var tangent = Path()
+                tangent.move(to: CGPoint(x: contact.x - surface.screenTangent.dx * 44,
+                                         y: contact.y - surface.screenTangent.dy * 44))
+                tangent.addLine(to: CGPoint(x: contact.x + surface.screenTangent.dx * 44,
+                                            y: contact.y + surface.screenTangent.dy * 44))
+                context.stroke(tangent, with: .color(.purple),
+                               style: StrokeStyle(lineWidth: 2, lineCap: .round))
+
+                var offset = Path()
+                offset.move(to: contact)
+                offset.addLine(to: visual)
+                context.stroke(offset, with: .color(.yellow),
+                               style: StrokeStyle(lineWidth: 2, dash: [4, 3]))
+                context.fill(Path(ellipseIn: CGRect(x: contact.x - 5, y: contact.y - 5,
+                                                    width: 10, height: 10)),
+                             with: .color(.green))
+                context.fill(Path(ellipseIn: CGRect(x: visual.x - 5, y: visual.y - 5,
+                                                    width: 10, height: 10)),
+                             with: .color(.yellow))
+            }
+            Text(debugText)
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .foregroundStyle(.white)
+                .padding(8)
+                .background(.black.opacity(0.76), in: RoundedRectangle(cornerRadius: 8))
+                .padding(.leading, 10)
+                .padding(.bottom, 18)
+        }
+        .allowsHitTesting(false)
+    }
+
+    private var debugText: String {
+        let p = surface.worldPosition
+        let n = surface.worldNormal
+        let t = surface.worldTangent
+        return String(format:
+            "CONTACT  green=surface yellow=visual\nP (%.2f, %.2f, %.2f)  lateral %.3f\nN (%.2f, %.2f, %.2f)  T (%.2f, %.2f, %.2f)\nride %.1f px (%.0f%%)  width %.2f m  allowed ±%.3f",
+            p.x, p.y, p.z, surface.lateral,
+            n.x, n.y, n.z, t.x, t.y, t.z,
+            spriteSize * HoneySlideTuning.playerRideHeightFraction,
+            HoneySlideTuning.playerRideHeightFraction * 100,
+            surface.trackWidth, surface.allowedLateral)
     }
 }
 #endif
@@ -432,6 +574,11 @@ private struct RiverWater: View {
             let geometry = makeTrackGeometry(slices: slices)
 #if DEBUG
             HoneySlideProfiler.endTrackGeneration(generationMeasurement)
+            if HoneySlideDebugState.solidOpaqueTrack {
+                drawSolidOpaqueDiagnostic(in: &context, slices: slices)
+                if HoneySlideDebugState.enabled { drawDebug(in: &context) }
+                return
+            }
 #endif
             drawBase(in: &context, quality: quality, geometry: geometry, slices: slices)
             drawFlowingMaterial(in: &context, quality: quality,
@@ -447,9 +594,136 @@ private struct RiverWater: View {
                           geometry: TrackGeometry,
                           slices: [TrackSlice]) {
         drawWoodenSupports(in: &context, quality: quality)
-        drawDistantGuard(in: &context, slices: slices)
+        drawGuaranteedOpaqueStructure(in: &context, slices: slices)
         drawTrackBody(in: &context, geometry: geometry)
+        drawGuaranteedOpaqueFloor(in: &context, slices: slices)
+        drawCenterGlow(in: &context, path: geometry.centerGlow)
     }
+
+    /// Every body quad gets an un-antialiased alpha-1 base before its decorative
+    /// gradient. This prevents sub-pixel scenery seams between adjacent slices.
+    private func drawGuaranteedOpaqueStructure(in context: inout GraphicsContext,
+                                               slices: [TrackSlice]) {
+        guard slices.count > 1 else { return }
+        let noSeams = FillStyle(eoFill: false, antialiased: false)
+        for index in 0..<(slices.count - 1) {
+            let aSlice = slices[index]
+            let bSlice = slices[index + 1]
+            if aSlice.projected.track.hasSurface
+                != bSlice.projected.track.hasSurface {
+                let surfaceBands = aSlice.projected.track.hasSurface
+                    ? aSlice.bands : bSlice.bands
+                for band in surfaceBands {
+                    context.fill(endCap(band),
+                                 with: .color(Color(red: 0.55, green: 0.18, blue: 0.01)),
+                                 style: noSeams)
+                }
+                continue
+            }
+            guard aSlice.projected.track.hasSurface,
+                  bSlice.projected.track.hasSurface else { continue }
+            let matched = matchedSections(aSlice.bands, bSlice.bands)
+            for bandIndex in 0..<min(matched.0.count, matched.1.count) {
+                let a = matched.0[bandIndex]
+                let b = matched.1[bandIndex]
+                context.fill(quad(a.undersideLeft, a.undersideRight,
+                                  b.undersideRight, b.undersideLeft),
+                             with: .color(Color(red: 0.31, green: 0.09, blue: 0.01)),
+                             style: noSeams)
+                context.fill(quad(a.outerLeft, a.floorLeft,
+                                  b.floorLeft, b.outerLeft),
+                             with: .color(Color(red: 0.88, green: 0.35, blue: 0.01)),
+                             style: noSeams)
+                context.fill(quad(a.floorRight, a.outerRight,
+                                  b.outerRight, b.floorRight),
+                             with: .color(Color(red: 0.88, green: 0.35, blue: 0.01)),
+                             style: noSeams)
+            }
+        }
+    }
+
+    /// Closed floor quads are submitted independently after the body. A single
+    /// compound path can cancel/self-intersect when a projected curve folds
+    /// over itself; drawing this alpha-1 pass last also guarantees the underbody
+    /// can never bleed through the playable surface.
+    private func drawGuaranteedOpaqueFloor(in context: inout GraphicsContext,
+                                           slices: [TrackSlice]) {
+        guard slices.count > 1 else { return }
+        let floorPaint = GraphicsContext.Shading.linearGradient(
+            Gradient(stops: [
+                .init(color: Color(red: 1.00, green: 0.78, blue: 0.12), location: 0),
+                .init(color: Color(red: 1.00, green: 0.61, blue: 0.035), location: 0.52),
+                .init(color: Color(red: 0.91, green: 0.39, blue: 0.015), location: 1)
+            ]),
+            startPoint: CGPoint(x: projection.centerX, y: projection.horizonY),
+            endPoint: CGPoint(x: projection.centerX, y: projection.size.height)
+        )
+        let noSeams = FillStyle(eoFill: false, antialiased: false)
+        for index in 0..<(slices.count - 1) {
+            let aSlice = slices[index]
+            let bSlice = slices[index + 1]
+            guard aSlice.projected.track.hasSurface,
+                  bSlice.projected.track.hasSurface else { continue }
+            let matched = matchedSections(aSlice.bands, bSlice.bands)
+            for bandIndex in 0..<min(matched.0.count, matched.1.count) {
+                let a = matched.0[bandIndex]
+                let b = matched.1[bandIndex]
+                context.fill(quad(a.floorLeft, a.floorRight,
+                                  b.floorRight, b.floorLeft),
+                             with: floorPaint,
+                             style: noSeams)
+            }
+        }
+    }
+
+#if DEBUG
+    /// Intentionally plain diagnostic: every structural quad is submitted
+    /// individually at alpha 1, with no texture, highlight or blend layer.
+    /// If scenery is visible here, the fault is topology/range—not material.
+    private func drawSolidOpaqueDiagnostic(in context: inout GraphicsContext,
+                                           slices: [TrackSlice]) {
+        guard slices.count > 1 else { return }
+        let noSeams = FillStyle(eoFill: false, antialiased: false)
+        for index in 0..<(slices.count - 1) {
+            let aSlice = slices[index]
+            let bSlice = slices[index + 1]
+            if aSlice.projected.track.hasSurface
+                != bSlice.projected.track.hasSurface {
+                let surfaceBands = aSlice.projected.track.hasSurface
+                    ? aSlice.bands : bSlice.bands
+                for band in surfaceBands {
+                    context.fill(endCap(band),
+                                 with: .color(Color(red: 0.55, green: 0.18, blue: 0.01)),
+                                 style: noSeams)
+                }
+                continue
+            }
+            guard aSlice.projected.track.hasSurface,
+                  bSlice.projected.track.hasSurface else { continue }
+            let matched = matchedSections(aSlice.bands, bSlice.bands)
+            for bandIndex in 0..<min(matched.0.count, matched.1.count) {
+                let a = matched.0[bandIndex]
+                let b = matched.1[bandIndex]
+                context.fill(quad(a.undersideLeft, a.undersideRight,
+                                  b.undersideRight, b.undersideLeft),
+                             with: .color(Color(red: 0.31, green: 0.09, blue: 0.01)),
+                             style: noSeams)
+                context.fill(quad(a.outerLeft, a.floorLeft,
+                                  b.floorLeft, b.outerLeft),
+                             with: .color(Color(red: 0.88, green: 0.35, blue: 0.01)),
+                             style: noSeams)
+                context.fill(quad(a.floorRight, a.outerRight,
+                                  b.outerRight, b.floorRight),
+                             with: .color(Color(red: 0.88, green: 0.35, blue: 0.01)),
+                             style: noSeams)
+                context.fill(quad(a.floorLeft, a.floorRight,
+                                  b.floorRight, b.floorLeft),
+                             with: .color(Color(red: 1.00, green: 0.68, blue: 0.02)),
+                             style: noSeams)
+            }
+        }
+    }
+#endif
 
     private func drawFinish(in context: inout GraphicsContext,
                             quality: HoneySlideVisualQuality,
@@ -521,6 +795,7 @@ private struct RiverWater: View {
 
     private struct TrackGeometry {
         var underbody = Path()
+        var endCaps = Path()
         var leftWalls = Path()
         var rightWalls = Path()
         var honeyFloor = Path()
@@ -625,17 +900,31 @@ private struct RiverWater: View {
         return path
     }
 
+    /// A real cross-section at a surface/gap boundary. Without this face the
+    /// slide ended as four unrelated strips, so the scenery could be seen
+    /// through the trough and the jump read as a stack of thin rectangles.
+    private func endCap(_ band: TrackBandSection) -> Path {
+        quad(band.outerLeft, band.outerRight,
+             band.undersideRight, band.undersideLeft)
+    }
+
     private func makeTrackGeometry(slices: [TrackSlice]) -> TrackGeometry {
         var geometry = TrackGeometry()
         guard slices.count > 1 else { return geometry }
-        let visibleFarTravel = projection.speed * HoneySlideTuning.fullyDetailedAheadSeconds
-            / projection.lookAheadDistance
         for index in 0..<(slices.count - 1) {
             let aSlice = slices[index]
             let bSlice = slices[index + 1]
+            if aSlice.projected.track.hasSurface
+                != bSlice.projected.track.hasSurface {
+                let surfaceBands = aSlice.projected.track.hasSurface
+                    ? aSlice.bands : bSlice.bands
+                for band in surfaceBands {
+                    geometry.endCaps.addPath(endCap(band))
+                }
+                continue
+            }
             guard aSlice.projected.track.hasSurface,
-                  bSlice.projected.track.hasSurface,
-                  bSlice.travel <= visibleFarTravel else { continue }
+                  bSlice.projected.track.hasSurface else { continue }
             let matched = matchedSections(aSlice.bands, bSlice.bands)
             let aBands = matched.0
             let bBands = matched.1
@@ -667,47 +956,20 @@ private struct RiverWater: View {
         return geometry
     }
 
-    /// The two-second projection guard is already route-ready but must never
-    /// expose a far cap. It is drawn as cheap individual quads whose material
-    /// fades to zero before the submitted endpoint. The fully visible ten
-    /// seconds remain in the cached combined paths below.
-    private func drawDistantGuard(in context: inout GraphicsContext,
-                                  slices: [TrackSlice]) {
-        guard slices.count > 1 else { return }
-        let visibleFar = projection.speed * HoneySlideTuning.fullyDetailedAheadSeconds
-            / projection.lookAheadDistance
-        let span = max(0.001, projection.renderFarTravel - visibleFar)
-        for index in 0..<(slices.count - 1) {
-            let aSlice = slices[index]
-            let bSlice = slices[index + 1]
-            guard aSlice.travel > visibleFar, bSlice.travel > visibleFar,
-                  aSlice.projected.track.hasSurface,
-                  bSlice.projected.track.hasSurface else { continue }
-            let midpointTravel = (aSlice.travel + bSlice.travel) * 0.5
-            let progress = min(1, max(0, (midpointTravel - visibleFar) / span))
-            let opacity = pow(1 - progress, 2.15)
-            guard opacity > 0.01 else { continue }
-            let matched = matchedSections(aSlice.bands, bSlice.bands)
-            for bandIndex in 0..<min(matched.0.count, matched.1.count) {
-                let a = matched.0[bandIndex]
-                let b = matched.1[bandIndex]
-                context.fill(quad(a.undersideLeft, a.undersideRight,
-                                  b.undersideRight, b.undersideLeft),
-                             with: .color(Color(red: 0.38, green: 0.12, blue: 0.018)
-                                .opacity(0.48 * Double(opacity))))
-                context.fill(quad(a.floorLeft, a.floorRight,
-                                  b.floorRight, b.floorLeft),
-                             with: .color(RiverPaint.far.opacity(0.82 * Double(opacity))))
-            }
-        }
-    }
-
     private func drawTrackBody(in context: inout GraphicsContext,
                                geometry: TrackGeometry) {
         context.fill(geometry.underbody, with: .linearGradient(
             Gradient(colors: [
                 Color(red: 0.50, green: 0.22, blue: 0.045),
                 Color(red: 0.31, green: 0.095, blue: 0.018)
+            ]),
+            startPoint: CGPoint(x: projection.centerX, y: projection.horizonY),
+            endPoint: CGPoint(x: projection.centerX, y: projection.size.height)
+        ))
+        context.fill(geometry.endCaps, with: .linearGradient(
+            Gradient(colors: [
+                Color(red: 0.92, green: 0.39, blue: 0.018),
+                Color(red: 0.39, green: 0.12, blue: 0.014)
             ]),
             startPoint: CGPoint(x: projection.centerX, y: projection.horizonY),
             endPoint: CGPoint(x: projection.centerX, y: projection.size.height)
@@ -722,16 +984,10 @@ private struct RiverWater: View {
             startPoint: CGPoint(x: 0, y: 0),
             endPoint: CGPoint(x: projection.size.width, y: 0)
         ))
-        context.fill(geometry.honeyFloor, with: .linearGradient(
-            Gradient(stops: [
-                .init(color: Color(red: 1.00, green: 0.78, blue: 0.12), location: 0),
-                .init(color: Color(red: 1.00, green: 0.61, blue: 0.035), location: 0.52),
-                .init(color: Color(red: 0.91, green: 0.39, blue: 0.015), location: 1)
-            ]),
-            startPoint: CGPoint(x: projection.centerX, y: projection.horizonY),
-            endPoint: CGPoint(x: projection.centerX, y: projection.size.height)
-        ))
-        context.fill(geometry.centerGlow, with: .linearGradient(
+    }
+
+    private func drawCenterGlow(in context: inout GraphicsContext, path: Path) {
+        context.fill(path, with: .linearGradient(
             Gradient(colors: [Color.white.opacity(0.10), RiverPaint.gloss.opacity(0.28),
                               Color.white.opacity(0.06)]),
             startPoint: CGPoint(x: projection.size.width * 0.22, y: 0),
@@ -1193,12 +1449,9 @@ private struct RiverWater: View {
         let alpha = Double(presence) * (0.40 + 0.12 * Double(current) + 0.08 * Double(wild))
         for i in 0..<4 {
             let travel = -CGFloat(i) * 0.045
-            var p = projection.point(lateral: boatLateral, travel: travel)
+            let p = projection.playerSurface(lateral: boatLateral,
+                                             travel: travel).contactPoint
             let s = projection.scale(for: travel)
-            if let band = sections(at: travel).first {
-                let t = min(1, max(0, (boatLateral + 1) * 0.5))
-                p.y = band.floorLeft.y + (band.floorRight.y - band.floorLeft.y) * t
-            }
             let w = (48 + CGFloat(i) * 22) * s
             let h = (12 + CGFloat(i) * 5) * s
             let rect = CGRect(x: p.x - w / 2, y: p.y + 4 * s, width: w, height: h)
@@ -1208,7 +1461,8 @@ private struct RiverWater: View {
 
         // Two curved lips make the wake feel displaced by a heavy tube,
         // rather than four unrelated flat rings.
-        let origin = projection.point(lateral: boatLateral, travel: -0.018)
+        let origin = projection.playerSurface(lateral: boatLateral,
+                                              travel: -0.018).contactPoint
         for side: CGFloat in [-1, 1] {
             var lip = Path()
             lip.move(to: CGPoint(x: origin.x + side * 18, y: origin.y + 7))

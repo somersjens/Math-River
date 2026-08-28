@@ -114,12 +114,12 @@ private enum RiverFormation {
     static func slots(for roundNumber: Int) -> [(lateral: CGFloat, extra: CGFloat)] {
         let extra: CGFloat = 0.02
         switch roundNumber % 6 {
-        case 0: return [(-0.22, 0), (-0.74, extra), (0.72, extra), (0.28, extra * 2)]
-        case 1: return [(-0.76, 0), (-0.18, extra * 0.85), (0.70, extra * 1.7), (0.20, extra * 2.5)]
-        case 2: return [(0.76, 0), (0.14, extra * 0.85), (-0.68, extra * 1.7), (-0.24, extra * 2.5)]
-        case 3: return [(-0.62, 0), (0.66, extra * 0.7), (0.08, extra * 1.6), (-0.34, extra * 2.4)]
-        case 4: return [(0.02, 0), (0.76, extra * 0.8), (-0.72, extra * 1.6), (0.30, extra * 2.4)]
-        default: return [(-0.70, 0), (0.68, 0), (-0.12, extra * 1.15), (0.42, extra * 2.2)]
+        case 0: return [(-0.28, 0), (-0.80, extra), (0.79, extra), (0.30, extra * 2)]
+        case 1: return [(-0.81, 0), (-0.22, extra * 0.85), (0.77, extra * 1.7), (0.24, extra * 2.5)]
+        case 2: return [(0.81, 0), (0.18, extra * 0.85), (-0.76, extra * 1.7), (-0.28, extra * 2.5)]
+        case 3: return [(-0.71, 0), (0.74, extra * 0.7), (0.10, extra * 1.6), (-0.38, extra * 2.4)]
+        case 4: return [(0.02, 0), (0.81, extra * 0.8), (-0.79, extra * 1.6), (0.34, extra * 2.4)]
+        default: return [(-0.78, 0), (0.76, 0), (-0.15, extra * 1.15), (0.46, extra * 2.2)]
         }
     }
 }
@@ -137,8 +137,15 @@ final class MathRiverArena: ObservableObject {
     }
     @Published private(set) var rewards: [RiverReward] = []
     @Published private(set) var decor: [RiverDecor] = []
-    @Published private(set) var targetLateral: CGFloat = 0
+    /// Physical metres from the track centerline. This remains stable when a
+    /// width multiplier or local frame changes; `displayLateral` is derived
+    /// only for projection and existing answer hit testing.
+    @Published private(set) var lateralPosition: CGFloat = 0
+    @Published private(set) var lateralVelocity: CGFloat = 0
+    @Published private(set) var steeringInput: CGFloat = 0
+    @Published private(set) var curveDriftAcceleration: CGFloat = 0
     @Published private(set) var displayLateral: CGFloat = 0
+    @Published private(set) var cameraLateral: CGFloat = 0
     @Published private(set) var activeBranch: Int = 0
     @Published private(set) var jumpLift: CGFloat = 0
     @Published private(set) var landingImpact: CGFloat = 0
@@ -146,6 +153,7 @@ final class MathRiverArena: ObservableObject {
     @Published private(set) var scroll: CGFloat = 0
     @Published private(set) var currentSlideSpeed: CGFloat = HoneySlideTuning.nominalSlideSpeed
     @Published private(set) var boatRoll: Double = 0
+    @Published private(set) var boatPitch: Double = 0
     @Published private(set) var boatBob: CGFloat = 0
     @Published private(set) var current: CGFloat = 1
     @Published private(set) var visualQuality = HoneySlideVisualQuality.recommended {
@@ -186,7 +194,6 @@ final class MathRiverArena: ObservableObject {
     private var reduceMotion = false
     private var scoreTarget: CGPoint?
     private var steeringOrigin: CGPoint?
-    private var steeringOriginLateral: CGFloat = 0
     private var lastTrackKind: HoneySegmentKind = .wide
     private var entranceRemaining: Double = 0
     private var entranceCompletion: (() -> Void)?
@@ -203,6 +210,9 @@ final class MathRiverArena: ObservableObject {
     private var splashBudget = 0
 #if DEBUG
     private var didApplyPreviewPhase = false
+    private var previousDiagnosticPosition: HoneyVector3?
+    private var previousDiagnosticFrame: HoneyTrackFrame?
+    private var previousDiagnosticSegmentID: String?
 #endif
 
 #if canImport(UIKit)
@@ -309,12 +319,17 @@ final class MathRiverArena: ObservableObject {
         pots.removeAll()
         loadedRoundID = nil
         pendingRound = lastRound
-        targetLateral = 0
+        lateralPosition = 0
+        lateralVelocity = 0
+        steeringInput = 0
+        curveDriftAcceleration = 0
         displayLateral = 0
+        cameraLateral = 0
         activeBranch = 0
         jumpLift = 0
         landingImpact = 0
         boatRoll = 0
+        boatPitch = 0
         entrance = 1
         entranceRemaining = RiverConfig.entranceDuration
         entranceCompletion = completion
@@ -353,31 +368,17 @@ final class MathRiverArena: ObservableObject {
     func beginSteering(at point: CGPoint) {
         guard steeringOrigin == nil else { return }
         steeringOrigin = point
-        steeringOriginLateral = targetLateral
     }
 
     func updateSteering(to point: CGPoint) {
         guard let origin = steeringOrigin, size.width > 0 else { return }
-        let delta = (point.x - origin.x) / size.width * HoneySlideTuning.steeringDragScale
-        targetLateral = clampedLateral(steeringOriginLateral + delta)
+        let forceTravel = max(44, size.width * 0.24)
+        steeringInput = min(1, max(-1, (point.x - origin.x) / forceTravel))
     }
 
     func endSteering() {
         steeringOrigin = nil
-    }
-
-    private func clampedLateral(_ proposed: CGFloat) -> CGFloat {
-        let sample = HoneySlideRoute.verticalSlice.sample(at: scroll)
-        let outer = HoneySlideTuning.railInset
-        guard sample.locksBranch, activeBranch != 0 else {
-            return min(outer, max(-outer, proposed))
-        }
-        // Once the honeycomb divider has risen, the selected branch becomes
-        // a real physical corridor. The merge releases this constraint again.
-        if activeBranch < 0 {
-            return min(-0.28, max(-outer, proposed))
-        }
-        return min(outer, max(0.28, proposed))
+        steeringInput = 0
     }
 
     // MARK: Spawn
@@ -558,29 +559,24 @@ final class MathRiverArena: ObservableObject {
         scroll += CGFloat(dt) * currentSlideSpeed
 #endif
 
-        let sample = HoneySlideRoute.verticalSlice.sample(at: scroll)
+        let route = HoneySlideRoute.verticalSlice
+        let frame = route.frame(at: scroll)
+        let sample = frame.sample
         if sample.kind == .split,
            sample.localProgress >= HoneySlideTuning.splitCommitProgress,
            activeBranch == 0 {
-            activeBranch = targetLateral < 0 ? -1 : 1
+            activeBranch = lateralPosition < 0 ? -1 : 1
         } else if !sample.locksBranch, sample.kind != .split {
             activeBranch = 0
         }
 
-        targetLateral = clampedLateral(targetLateral)
-        let steeringStrength = sample.steeringResponseMultiplier
-        let lateralError = targetLateral - displayLateral
-        displayLateral += lateralError * CGFloat(min(1, dt * Double(HoneySlideTuning.steeringResponse * steeringStrength)))
-        displayLateral = clampedLateral(displayLateral)
-
-        // The rail contact is forgiving: forward travel is untouched, while
-        // lateral momentum is damped and nudged back into the honey channel.
-        if sample.railVisibility > 0.20,
-           abs(displayLateral) > HoneySlideTuning.railInset - 0.015 {
-            let inward: CGFloat = displayLateral < 0 ? 1 : -1
-            targetLateral += inward * HoneySlideTuning.railBounce
-            targetLateral = clampedLateral(targetLateral)
+#if DEBUG
+        if let previewSteering = HoneySlidePreviewMode.steeringInput {
+            steeringInput = previewSteering
         }
+#endif
+        integrateLateralMotion(dt: dt, frame: frame)
+        cameraLateral += (displayLateral - cameraLateral) * CGFloat(min(1, dt * 2.4))
 
         jumpLift = sample.isAir
             ? CGFloat(sin(Double(sample.localProgress) * .pi)) * HoneySlideTuning.jumpHeight
@@ -593,12 +589,22 @@ final class MathRiverArena: ObservableObject {
         }
         lastTrackKind = sample.kind
 
-        boatRoll = Double(lateralError) * 22
-            + Double(sample.banking) * 11
-            + sin(clock * 3.4) * 2.4 * Double(1 - calmness)
+        // Surface banking is applied from the projection itself. This is only
+        // the small, smoothed suspension/steering response on top of it.
+        let velocityShare = lateralVelocity / max(0.001, HoneySlideTuning.maxLateralSpeed)
+        let targetRoll = Double(velocityShare) * 5.5
+            + Double(steeringInput) * 2.0
+            + sin(clock * 3.4) * 1.15 * Double(1 - calmness)
+        boatRoll += (targetRoll - boatRoll) * min(1, dt * 7.5)
+        let targetPitch = Double(sample.downhillSlope * 180 / .pi) * 0.22
+        boatPitch += (targetPitch - boatPitch) * min(1, dt * 5.5)
         let landingBounce = sin(Double(landingImpact) * .pi * 2) * Double(landingImpact) * 0.025
-        boatBob = CGFloat(sin(clock * 5.2)) * (0.010 + 0.008 * (1 - calmness))
+        boatBob = CGFloat(sin(clock * 5.2)) * (0.003 + 0.002 * (1 - calmness))
             - jumpLift - CGFloat(landingBounce)
+
+#if DEBUG
+        diagnoseSnap(dt: dt, frame: frame)
+#endif
 
         if entranceRemaining > 0 {
             entranceRemaining = max(0, entranceRemaining - dt)
@@ -622,6 +628,97 @@ final class MathRiverArena: ObservableObject {
         tickEffects(dt: dt)
         objectWillChange.send()
     }
+
+    private func integrateLateralMotion(dt: Double, frame: HoneyTrackFrame) {
+        let sample = frame.sample
+        let halfWidth = HoneySlideTuning.worldTrackHalfWidth * sample.width
+        let allowedNormalized = HoneySlideTuning.playableLateralLimit(for: sample.width)
+        var minimum = -halfWidth * allowedNormalized
+        var maximum = halfWidth * allowedNormalized
+        if sample.locksBranch, activeBranch < 0 {
+            maximum = -halfWidth * 0.28
+        } else if sample.locksBranch, activeBranch > 0 {
+            minimum = halfWidth * 0.28
+        }
+
+        let bankingHelpsCurve = sample.banking * frame.curvature > 0
+        let bankCompensation = bankingHelpsCurve
+            ? max(0.38, 1 - abs(sample.banking) * HoneySlideTuning.bankingDriftCompensation)
+            : 1
+        let rawCurveDrift = -frame.curvature * currentSlideSpeed * currentSlideSpeed
+            * HoneySlideTuning.curveDriftStrength * bankCompensation
+        curveDriftAcceleration = min(HoneySlideTuning.maxCurveDriftAcceleration,
+                                     max(-HoneySlideTuning.maxCurveDriftAcceleration,
+                                         rawCurveDrift))
+
+        var remaining = min(max(dt, 0), 1.0 / 30.0)
+        while remaining > 0.000_001 {
+            let step = min(remaining, HoneySlideTuning.lateralSimulationStep)
+            let h = CGFloat(step)
+            let steering = steeringInput * HoneySlideTuning.steeringAcceleration
+                * sample.steeringResponseMultiplier
+            lateralVelocity += (steering + curveDriftAcceleration) * h
+            lateralVelocity *= CGFloat(exp(-Double(HoneySlideTuning.lateralDrag) * step))
+            lateralVelocity = min(HoneySlideTuning.maxLateralSpeed,
+                                  max(-HoneySlideTuning.maxLateralSpeed, lateralVelocity))
+            lateralPosition += lateralVelocity * h
+
+            if lateralPosition < minimum {
+                lateralPosition = minimum
+                if lateralVelocity < 0 {
+                    lateralVelocity = -lateralVelocity * HoneySlideTuning.railVelocityRetention
+                }
+            } else if lateralPosition > maximum {
+                lateralPosition = maximum
+                if lateralVelocity > 0 {
+                    lateralVelocity = -lateralVelocity * HoneySlideTuning.railVelocityRetention
+                }
+            }
+            remaining -= step
+        }
+        displayLateral = min(allowedNormalized,
+                             max(-allowedNormalized, lateralPosition / max(0.001, halfWidth)))
+    }
+
+#if DEBUG
+    private func diagnoseSnap(dt: Double, frame: HoneyTrackFrame) {
+        let route = HoneySlideRoute.verticalSlice
+        let surface = route.surface(at: scroll, lateral: displayLateral)
+        let playerPosition = surface.position
+        let projection = RiverProjection(size: size, phase: scroll, speed: currentSlideSpeed,
+                                         focusLateral: cameraLateral)
+        let positionDelta = previousDiagnosticPosition.map { (playerPosition - $0).length } ?? 0
+        let expectedDelta = currentSlideSpeed * CGFloat(dt)
+        let basisDot = previousDiagnosticFrame.map { $0.right.dot(frame.right) } ?? 1
+        let segmentChanged = previousDiagnosticSegmentID != nil
+            && previousDiagnosticSegmentID != frame.sample.segmentID
+        let unexpectedMovement = positionDelta > expectedDelta * 2.2 + 0.45
+        let basisJump = basisDot < 0.997
+        if segmentChanged || unexpectedMovement || basisJump {
+            let p = playerPosition
+            let c = frame.position
+            let t = frame.tangent
+            let r = frame.right
+            let u = frame.surfaceUp
+            let camera = projection.debugCameraPosition
+            print(String(format:
+                "[HoneySlide motion %@] progress=%.3f dt=%.4f segment=%@ nextBoundary=%.3f\nplayer=(%.3f,%.3f,%.3f) lateral=%.3fm velocity=%.3fm/s input=%.3f drift=%.3fm/s²\ncenter=(%.3f,%.3f,%.3f) tangent=(%.4f,%.4f,%.4f) right=(%.4f,%.4f,%.4f) up=(%.4f,%.4f,%.4f) curvature=%.6f\ncamera=(%.3f,%.3f,%.3f) frameDot=%.6f movement=%.3f expected=%.3f",
+                segmentChanged ? "boundary" : "spike",
+                scroll, dt, frame.sample.segmentID,
+                route.distanceToNextSegmentBoundary(after: scroll),
+                p.x, p.y, p.z, lateralPosition, lateralVelocity,
+                steeringInput, curveDriftAcceleration,
+                c.x, c.y, c.z,
+                t.x, t.y, t.z, r.x, r.y, r.z, u.x, u.y, u.z,
+                frame.curvature,
+                camera.x, camera.y, camera.z,
+                basisDot, positionDelta, expectedDelta))
+        }
+        previousDiagnosticPosition = playerPosition
+        previousDiagnosticFrame = frame
+        previousDiagnosticSegmentID = frame.sample.segmentID
+    }
+#endif
 
     private func tickCalm(dt: Double) {
         guard calmRemaining > 0 else { return }
@@ -768,7 +865,8 @@ final class MathRiverArena: ObservableObject {
         if let flying {
             let t = min(max(flying.grabFlight, 0), 1)
             grabReach = CGFloat(sin(Double(t) * .pi))
-            let projection = RiverProjection(size: size, phase: scroll, speed: currentSlideSpeed)
+            let projection = RiverProjection(size: size, phase: scroll, speed: currentSlideSpeed,
+                                             focusLateral: cameraLateral)
             let water = projection.point(lateral: flying.lateral, travel: flying.travel)
             let hang = CGPoint(
                 x: water.x,
@@ -817,7 +915,8 @@ final class MathRiverArena: ObservableObject {
     }
 
     private func emitDroplet(nearBoat: Bool = false, at point: CGPoint? = nil, honey: Bool, burst: Bool = false) {
-        let hull = point ?? RiverProjection(size: size, phase: scroll, speed: currentSlideSpeed)
+        let hull = point ?? RiverProjection(size: size, phase: scroll, speed: currentSlideSpeed,
+                                            focusLateral: cameraLateral)
             .point(lateral: displayLateral + CGFloat.random(in: -0.28...0.28),
                    travel: CGFloat.random(in: -0.02...0.06))
         let side: CGFloat = Bool.random() ? 1 : -1
@@ -842,27 +941,39 @@ final class MathRiverArena: ObservableObject {
     }
 
     func project(lateral: CGFloat, travel: CGFloat) -> CGPoint {
-        RiverProjection(size: size, phase: scroll, speed: currentSlideSpeed)
+        RiverProjection(size: size, phase: scroll, speed: currentSlideSpeed,
+                        focusLateral: cameraLateral)
             .point(lateral: lateral, travel: travel)
     }
 
 #if DEBUG
     var debugPerformanceText: String {
         let route = HoneySlideRoute.verticalSlice
-        let sample = route.sample(at: scroll)
+        let frame = route.frame(at: scroll)
+        let sample = frame.sample
         let fps = frameIntervalEMA > 0 ? 1 / frameIntervalEMA : 0
-        let projection = RiverProjection(size: size, phase: scroll, speed: currentSlideSpeed)
+        let projection = RiverProjection(size: size, phase: scroll, speed: currentSlideSpeed,
+                                         focusLateral: cameraLateral)
         let ready = projection.generationReadyDistance
-        return String(format: "FPS %.0f   %.1f ms\nSpeed %.1f   slope %.1f°\nP %.0f m   C %.0f m   elevation %.1f\nActive -%.0f m (%.1f s)   visible +%.0f m (%.1f s)\nReady +%.0f m (%.1f s)   %d/%d segments\nTrack gen %.2f ms   particles %d pooled",
+        let halfWidth = HoneySlideTuning.worldTrackHalfWidth * sample.width
+        let allowed = HoneySlideTuning.playableLateralLimit(for: sample.width)
+        let world = route.surface(at: scroll, lateral: displayLateral).position
+        return String(format: "FPS %.0f   %.1f ms   track %.2f ms\nSpeed %.1f   slope %.1f°   curve %+.5f\nLateral %+.2f m   v %+.2f   input %+.2f   drift %+.2f\nWidth %.2f m   allowed ±%.2f m (±%.3f)\n%@   next boundary %.2f m\nPlayer (%.1f, %.1f, %.1f)   P %.0f m   C %.0f m\nActive -%.0f m (%.1f s)   visible +%.0f m (%.1f s)\nReady +%.0f m (%.1f s)   %d/%d segments   %d particles",
                       fps, frameIntervalEMA * 1_000,
+                      HoneySlideProfiler.latestTrackGenerationMilliseconds,
                       currentSlideSpeed, sample.downhillSlope * 180 / .pi,
-                      scroll, projection.cameraProgress, sample.elevation,
+                      frame.curvature,
+                      lateralPosition, lateralVelocity, steeringInput, curveDriftAcceleration,
+                      halfWidth * 2, halfWidth * allowed, allowed,
+                      sample.segmentID, route.distanceToNextSegmentBoundary(after: scroll),
+                      world.x, world.y, world.z,
+                      scroll, projection.cameraProgress,
                       projection.activeBehindDistance, HoneySlideTuning.visibleBehindSeconds,
                       projection.visibleAheadDistance, HoneySlideTuning.visibleAheadSeconds,
                       ready, HoneySlideTuning.generationLookAheadSeconds,
                       activeSegmentCount(behind: projection.activeBehindDistance,
                                          ahead: ready), route.segments.count,
-                      HoneySlideProfiler.latestTrackGenerationMilliseconds, splashes.count)
+                      splashes.count)
     }
 
     private func activeSegmentCount(behind: CGFloat, ahead: CGFloat) -> Int {
@@ -907,7 +1018,8 @@ struct RiverProjection {
 
     init(size: CGSize,
          phase: CGFloat = 0,
-         speed: CGFloat = HoneySlideTuning.nominalSlideSpeed) {
+         speed: CGFloat = HoneySlideTuning.nominalSlideSpeed,
+         focusLateral: CGFloat = 0) {
         self.size = size
         self.phase = phase
         self.speed = speed
@@ -924,7 +1036,9 @@ struct RiverProjection {
         cameraProgress = phase - chaseDistance
         let cameraTrackFrame = route.frame(at: phase - chaseDistance)
         let cameraHeight: CGFloat = 8.5
-        let camera = cameraTrackFrame.position + HoneyVector3.up * cameraHeight
+        let focusOffset = current.right * (HoneySlideTuning.worldTrackHalfWidth
+            * current.sample.width * focusLateral * 0.58)
+        let camera = cameraTrackFrame.position + HoneyVector3.up * cameraHeight + focusOffset
         cameraPosition = camera
 
         let aimDistance = speed * HoneySlideTuning.cameraAimSeconds
@@ -939,7 +1053,7 @@ struct RiverProjection {
             y: current.position.y
                 + (authoredAim.y - current.position.y) * pitchFollow - 2.0,
             z: authoredAim.z
-        )
+        ) + focusOffset
         let forward = (aim - camera).normalized
         cameraForward = forward
         cameraRight = HoneyVector3.up.cross(forward).normalized
@@ -976,6 +1090,9 @@ struct RiverProjection {
     }
     var boatY: CGFloat { size.height * 0.79 }
     var centerX: CGFloat { size.width * 0.5 }
+#if DEBUG
+    var debugCameraPosition: HoneyVector3 { cameraPosition }
+#endif
 
     struct ProjectedTrackSample {
         let track: HoneyTrackSample
@@ -999,6 +1116,24 @@ struct RiverProjection {
                 (center - offset - branchHalf, center - offset + branchHalf),
                 (center + offset - branchHalf, center + offset + branchHalf)
             ]
+        }
+    }
+
+    struct ProjectedPlayerSurface {
+        let contactPoint: CGPoint
+        let screenNormal: CGVector
+        let screenTangent: CGVector
+        let surfaceRollDegrees: Double
+        let worldPosition: HoneyVector3
+        let worldNormal: HoneyVector3
+        let worldTangent: HoneyVector3
+        let lateral: CGFloat
+        let trackWidth: CGFloat
+        let allowedLateral: CGFloat
+
+        func visualPoint(rideHeight: CGFloat, bounce: CGFloat = 0) -> CGPoint {
+            CGPoint(x: contactPoint.x + screenNormal.dx * (rideHeight + bounce),
+                    y: contactPoint.y + screenNormal.dy * (rideHeight + bounce))
         }
     }
 
@@ -1077,15 +1212,56 @@ struct RiverProjection {
 
     func x(lateral: CGFloat, travel: CGFloat) -> CGFloat {
         let projected = projectedSample(for: travel)
-        return projected.center + lateral * projected.halfWidth * 0.82
+        return projected.center + lateral * projected.halfWidth
     }
 
     func point(lateral: CGFloat, travel: CGFloat) -> CGPoint {
         let projected = projectedSample(for: travel)
-        let t = min(1, max(0, (lateral * 0.82 + 1) * 0.5))
-        return CGPoint(x: projected.center + lateral * projected.halfWidth * 0.82,
+        let t = min(1, max(0, (lateral + 1) * 0.5))
+        return CGPoint(x: projected.center + lateral * projected.halfWidth,
                        y: projected.leftEdgeY
                         + (projected.rightEdgeY - projected.leftEdgeY) * t)
+    }
+
+    /// Projects the same banked trough-floor sample used by the player's
+    /// logical contact. This deliberately differs from `point`, which remains
+    /// the lightweight placement function for existing answer art.
+    func playerSurface(lateral: CGFloat, travel: CGFloat = 0) -> ProjectedPlayerSurface {
+        let distance = phase + travel * lookAheadDistance
+        let surface = route.surface(at: distance, lateral: lateral)
+        let contact = project(surface.position)
+        let normalEnd = project(surface.position + surface.normal)
+        let tangentEnd = project(surface.position + surface.tangent)
+        let rightEnd = project(surface.position + surface.right)
+
+        func normalized(_ delta: CGVector, fallback: CGVector) -> CGVector {
+            let magnitude = max(0.000_001,
+                                sqrt(delta.dx * delta.dx + delta.dy * delta.dy))
+            guard magnitude.isFinite else { return fallback }
+            return CGVector(dx: delta.dx / magnitude, dy: delta.dy / magnitude)
+        }
+
+        let normal = normalized(CGVector(dx: normalEnd.x - contact.x,
+                                         dy: normalEnd.y - contact.y),
+                                fallback: CGVector(dx: 0, dy: -1))
+        let tangent = normalized(CGVector(dx: tangentEnd.x - contact.x,
+                                          dy: tangentEnd.y - contact.y),
+                                 fallback: CGVector(dx: 0, dy: -1))
+        let rightDelta = CGVector(dx: rightEnd.x - contact.x,
+                                  dy: rightEnd.y - contact.y)
+        let roll = atan2(rightDelta.dy, rightDelta.dx) * 180 / .pi
+        return ProjectedPlayerSurface(
+            contactPoint: contact,
+            screenNormal: normal,
+            screenTangent: tangent,
+            surfaceRollDegrees: Double(roll),
+            worldPosition: surface.position,
+            worldNormal: surface.normal,
+            worldTangent: surface.tangent,
+            lateral: surface.lateral,
+            trackWidth: surface.halfWidth * 2,
+            allowedLateral: HoneySlideTuning.playableLateralLimit(for: surface.track.width)
+        )
     }
 
     func riverLeft(travel: CGFloat) -> CGFloat {
