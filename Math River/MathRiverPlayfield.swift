@@ -433,7 +433,7 @@ private struct RiverWater: View {
 #if DEBUG
             HoneySlideProfiler.endTrackGeneration(generationMeasurement)
 #endif
-            drawBase(in: &context, quality: quality, geometry: geometry)
+            drawBase(in: &context, quality: quality, geometry: geometry, slices: slices)
             drawFlowingMaterial(in: &context, quality: quality,
                                 floorMask: geometry.honeyFloor)
             drawFinish(in: &context, quality: quality, slices: slices)
@@ -444,8 +444,10 @@ private struct RiverWater: View {
 
     private func drawBase(in context: inout GraphicsContext,
                           quality: HoneySlideVisualQuality,
-                          geometry: TrackGeometry) {
+                          geometry: TrackGeometry,
+                          slices: [TrackSlice]) {
         drawWoodenSupports(in: &context, quality: quality)
+        drawDistantGuard(in: &context, slices: slices)
         drawTrackBody(in: &context, geometry: geometry)
     }
 
@@ -567,15 +569,19 @@ private struct RiverWater: View {
         let sample = projected.track
         let near = projected.nearness
         let perspective = projected.scale
-        let y = projected.y
         let bands = projected.bandEdges.map { band in
             let span = max(1, band.right - band.left)
             let inset = span * (0.090 + 0.030 * near)
             let depth = (7 + 20 * near) * perspective
                 * (sample.troughDepth / 0.10)
-            let bank = sample.banking * span * 0.10
-            let leftY = y - bank
-            let rightY = y + bank
+            let fullLeft = projected.center - projected.halfWidth
+            let fullSpan = max(1, projected.halfWidth * 2)
+            let leftT = min(1, max(0, (band.left - fullLeft) / fullSpan))
+            let rightT = min(1, max(0, (band.right - fullLeft) / fullSpan))
+            let leftY = projected.leftEdgeY
+                + (projected.rightEdgeY - projected.leftEdgeY) * leftT
+            let rightY = projected.leftEdgeY
+                + (projected.rightEdgeY - projected.leftEdgeY) * rightT
             let thickness = (3 + 7 * near) * perspective
             return TrackBandSection(
                 outerLeft: CGPoint(x: band.left, y: leftY),
@@ -595,10 +601,16 @@ private struct RiverWater: View {
 
     private func makeTrackSlices(quality: HoneySlideVisualQuality) -> [TrackSlice] {
         let steps = quality.floorSteps
-        let far = HoneySlideTuning.visualFarTravel
-        let near = HoneySlideTuning.visualNearTravel
+        let far = projection.renderFarTravel
+        let near = projection.renderNearTravel
         return (0...steps).map { index in
-            let travel = far - CGFloat(index) / CGFloat(steps) * (far - near)
+            // Quadratic spacing spends most topology close to the camera,
+            // where seams and silhouette changes have the most screen area.
+            // The analytical route is already ready 15 seconds ahead, so this
+            // is projection only—no synchronous segment creation occurs here.
+            let progress = CGFloat(index) / CGFloat(steps)
+            let distanceShare = pow(1 - progress, 2.15)
+            let travel = near + (far - near) * distanceShare
             return trackSlice(at: travel)
         }
     }
@@ -616,11 +628,14 @@ private struct RiverWater: View {
     private func makeTrackGeometry(slices: [TrackSlice]) -> TrackGeometry {
         var geometry = TrackGeometry()
         guard slices.count > 1 else { return geometry }
+        let visibleFarTravel = projection.speed * HoneySlideTuning.fullyDetailedAheadSeconds
+            / projection.lookAheadDistance
         for index in 0..<(slices.count - 1) {
             let aSlice = slices[index]
             let bSlice = slices[index + 1]
             guard aSlice.projected.track.hasSurface,
-                  bSlice.projected.track.hasSurface else { continue }
+                  bSlice.projected.track.hasSurface,
+                  bSlice.travel <= visibleFarTravel else { continue }
             let matched = matchedSections(aSlice.bands, bSlice.bands)
             let aBands = matched.0
             let bBands = matched.1
@@ -628,7 +643,7 @@ private struct RiverWater: View {
             for bandIndex in 0..<count {
                 let a = aBands[bandIndex]
                 let b = bBands[bandIndex]
-                geometry.underbody.addPath(quad(a.outerLeft, a.outerRight,
+                geometry.underbody.addPath(quad(a.undersideLeft, a.undersideRight,
                                                 b.undersideRight, b.undersideLeft))
                 geometry.leftWalls.addPath(quad(a.outerLeft, a.floorLeft,
                                                 b.floorLeft, b.outerLeft))
@@ -650,6 +665,41 @@ private struct RiverWater: View {
             }
         }
         return geometry
+    }
+
+    /// The two-second projection guard is already route-ready but must never
+    /// expose a far cap. It is drawn as cheap individual quads whose material
+    /// fades to zero before the submitted endpoint. The fully visible ten
+    /// seconds remain in the cached combined paths below.
+    private func drawDistantGuard(in context: inout GraphicsContext,
+                                  slices: [TrackSlice]) {
+        guard slices.count > 1 else { return }
+        let visibleFar = projection.speed * HoneySlideTuning.fullyDetailedAheadSeconds
+            / projection.lookAheadDistance
+        let span = max(0.001, projection.renderFarTravel - visibleFar)
+        for index in 0..<(slices.count - 1) {
+            let aSlice = slices[index]
+            let bSlice = slices[index + 1]
+            guard aSlice.travel > visibleFar, bSlice.travel > visibleFar,
+                  aSlice.projected.track.hasSurface,
+                  bSlice.projected.track.hasSurface else { continue }
+            let midpointTravel = (aSlice.travel + bSlice.travel) * 0.5
+            let progress = min(1, max(0, (midpointTravel - visibleFar) / span))
+            let opacity = pow(1 - progress, 2.15)
+            guard opacity > 0.01 else { continue }
+            let matched = matchedSections(aSlice.bands, bSlice.bands)
+            for bandIndex in 0..<min(matched.0.count, matched.1.count) {
+                let a = matched.0[bandIndex]
+                let b = matched.1[bandIndex]
+                context.fill(quad(a.undersideLeft, a.undersideRight,
+                                  b.undersideRight, b.undersideLeft),
+                             with: .color(Color(red: 0.38, green: 0.12, blue: 0.018)
+                                .opacity(0.48 * Double(opacity))))
+                context.fill(quad(a.floorLeft, a.floorRight,
+                                  b.floorRight, b.floorLeft),
+                             with: .color(RiverPaint.far.opacity(0.82 * Double(opacity))))
+            }
+        }
     }
 
     private func drawTrackBody(in context: inout GraphicsContext,
@@ -695,7 +745,8 @@ private struct RiverWater: View {
         let count = quality.highlightCount
         for index in 0..<count {
             let seed = hash(index, 211)
-            let moving = cycle(scroll / projection.lookAheadDistance * 1.28
+            let moving = cycle(scroll / HoneySlideTuning.cameraLookAheadDistance(
+                for: HoneySlideTuning.nominalSlideSpeed) * 1.42
                                + seed * 1.45, 1.48)
             let travel = 1.20 - moving
             let sample = projection.sample(for: travel)
@@ -728,7 +779,8 @@ private struct RiverWater: View {
         let count = tight ? 10 : 16
         for index in 0..<count {
             let seed = hash(index, 330)
-            let head = 1.20 - cycle(scroll / projection.lookAheadDistance * 1.08
+            let head = 1.20 - cycle(scroll / HoneySlideTuning.cameraLookAheadDistance(
+                for: HoneySlideTuning.nominalSlideSpeed) * 1.22
                                     + seed * 1.48, 1.52)
             let length = 0.09 + hash(index, 331) * 0.16
             let across = 0.12 + hash(index, 332) * 0.76
@@ -774,6 +826,8 @@ private struct RiverWater: View {
             let aSample = aSlice.projected.track
             let bSample = bSlice.projected.track
             guard aSample.hasSurface, bSample.hasSurface else { continue }
+            let detailScale = min(aSlice.projected.scale, bSlice.projected.scale)
+            guard detailScale > 0.105 else { continue }
             let railPresence = (aSample.railVisibility + bSample.railVisibility) * 0.5
             guard railPresence > 0.015 else { continue }
             let matched = matchedSections(aSlice.bands, bSlice.bands)
@@ -804,27 +858,27 @@ private struct RiverWater: View {
                     rail.move(to: start)
                     rail.addLine(to: end)
                     let dividerWidth = isInnerRail ? max(0.12, innerFactorB) : 1
-                    let width = max(isInnerRail ? 0.45 : 2.2,
+                    let width = max(isInnerRail ? 0.22 : 0.48,
                                     (3 + 7 * bSlice.projected.nearness)
                                     * bSlice.projected.scale * dividerWidth
                                     * max(0.16, railPresence))
                     context.stroke(rail, with: .color(Color.black.opacity(0.34 * Double(railPresence))),
                                    style: StrokeStyle(lineWidth: width * 1.72,
-                                                      lineCap: .butt, lineJoin: .round))
+                                                      lineCap: .round, lineJoin: .round))
                     context.stroke(rail, with: .color(Color(red: 0.72, green: 0.28, blue: 0.015)
                         .opacity(Double(railPresence))),
                                    style: StrokeStyle(lineWidth: width * 1.42,
-                                                      lineCap: .butt, lineJoin: .round))
+                                                      lineCap: .round, lineJoin: .round))
                     context.stroke(rail, with: .color(Color(red: 1.00, green: 0.64, blue: 0.035)
                         .opacity(Double(railPresence))),
                                    style: StrokeStyle(lineWidth: width,
-                                                      lineCap: .butt, lineJoin: .round))
+                                                      lineCap: .round, lineJoin: .round))
                     let shine = rail.applying(CGAffineTransform(translationX: 0,
                                                                 y: -width * 0.20))
                     context.stroke(shine, with: .color(Color(red: 1.0, green: 0.94, blue: 0.48)
                         .opacity(0.82 * Double(railPresence))),
                                    style: StrokeStyle(lineWidth: max(0.8, width * 0.28),
-                                                      lineCap: .butt, lineJoin: .round))
+                                                      lineCap: .round, lineJoin: .round))
                 }
             }
         }
@@ -834,10 +888,12 @@ private struct RiverWater: View {
                                     quality: HoneySlideVisualQuality) {
         let count = quality.supportCount
         for index in 0..<count {
-            let travel = 1.08 - CGFloat(index) / CGFloat(max(1, count - 1)) * 1.18
+            let share = CGFloat(index) / CGFloat(max(1, count - 1))
+            let travel = 1.34 - share * 1.40
             let slice = trackSlice(at: travel)
             let sample = slice.projected.track
-            guard sample.hasSurface, sample.kind != .landing else { continue }
+            guard sample.hasSurface, sample.kind != .landing,
+                  slice.projected.scale > 0.15 else { continue }
             let y = slice.projected.y
             let drop = (24 + 54 * slice.projected.nearness) * slice.projected.scale
             let inset = max(2, 5 * slice.projected.scale)
@@ -849,20 +905,20 @@ private struct RiverWater: View {
                     post.move(to: CGPoint(x: x, y: y + 3))
                     post.addLine(to: CGPoint(x: x, y: y + drop))
                     context.stroke(post, with: .color(Color.black.opacity(0.30)),
-                                   style: StrokeStyle(lineWidth: max(2.2, 6 * slice.projected.scale),
+                                   style: StrokeStyle(lineWidth: max(0.7, 6 * slice.projected.scale),
                                                       lineCap: .round))
                     context.stroke(post, with: .color(RiverPaint.wood.opacity(0.70)),
-                                   style: StrokeStyle(lineWidth: max(1.4, 4 * slice.projected.scale),
+                                   style: StrokeStyle(lineWidth: max(0.45, 4 * slice.projected.scale),
                                                       lineCap: .round))
                 }
                 var crossBeam = Path()
                 crossBeam.move(to: CGPoint(x: left, y: y + drop * 0.45))
                 crossBeam.addLine(to: CGPoint(x: right, y: y + drop * 0.45))
                 context.stroke(crossBeam, with: .color(Color.black.opacity(0.24)),
-                               style: StrokeStyle(lineWidth: max(2, 5 * slice.projected.scale),
+                               style: StrokeStyle(lineWidth: max(0.6, 5 * slice.projected.scale),
                                                   lineCap: .round))
                 context.stroke(crossBeam, with: .color(RiverPaint.wood.opacity(0.62)),
-                               style: StrokeStyle(lineWidth: max(1, 3 * slice.projected.scale),
+                               style: StrokeStyle(lineWidth: max(0.4, 3 * slice.projected.scale),
                                                   lineCap: .round))
                 var brace = Path()
                 brace.move(to: CGPoint(x: left, y: y + drop))
@@ -914,6 +970,7 @@ private struct RiverWater: View {
             let there = slices[index + 1]
             guard here.projected.track.hasSurface != there.projected.track.hasSurface else { continue }
             let edge = here.projected.track.hasSurface ? here : there
+            guard edge.projected.scale > 0.14 else { continue }
             for band in edge.bands {
                 let left = band.outerLeft
                 let right = band.outerRight
@@ -971,13 +1028,31 @@ private struct RiverWater: View {
 #if DEBUG
     private func drawDebug(in context: inout GraphicsContext) {
         var center = Path()
-        for index in 0...36 {
-            let travel = 1.16 - CGFloat(index) / 36 * 1.30
+        var previousSegment: String?
+        for index in 0...120 {
+            let progress = CGFloat(index) / 120
+            let travel = projection.renderFarTravel
+                + (projection.renderNearTravel - projection.renderFarTravel) * progress
             let point = projection.point(lateral: 0, travel: travel)
             if index == 0 { center.move(to: point) } else { center.addLine(to: point) }
+            let sample = projection.sample(for: travel)
+            if let previousSegment, previousSegment != sample.segmentID,
+               point.x > -20, point.x < projection.size.width + 20,
+               point.y > -20, point.y < projection.size.height + 20 {
+                let marker = CGRect(x: point.x - 4, y: point.y - 4, width: 8, height: 8)
+                context.fill(Path(ellipseIn: marker),
+                             with: .color(Color(red: 1, green: 0.12, blue: 0.72).opacity(0.90)))
+            }
+            previousSegment = sample.segmentID
         }
         context.stroke(center, with: .color(.cyan.opacity(0.8)),
                        style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
+
+        let player = projection.point(lateral: 0, travel: 0)
+        context.stroke(Path(ellipseIn: CGRect(x: player.x - 6, y: player.y - 6,
+                                              width: 12, height: 12)),
+                       with: .color(.green.opacity(0.95)),
+                       style: StrokeStyle(lineWidth: 2))
     }
 #endif
 

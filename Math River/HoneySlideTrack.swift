@@ -18,8 +18,11 @@ enum HoneySlideTuning {
     static var nominalSlideSpeed: CGFloat { baseSlideSpeed * speedMultiplier }
     static let maximumDownhillSpeedBonus: CGFloat = 0.16
     static let cameraLookAheadSeconds: CGFloat = 2.6
-    static let cameraAimSeconds: CGFloat = 0.85
-    static let generationLookAheadSeconds: CGFloat = 8.0
+    static let cameraAimSeconds: CGFloat = 2.6
+    static let visibleBehindSeconds: CGFloat = 2.0
+    static let fullyDetailedAheadSeconds: CGFloat = 8.0
+    static let visibleAheadSeconds: CGFloat = 10.0
+    static let generationLookAheadSeconds: CGFloat = 15.0
     static let minimumLookAheadDistance: CGFloat = 72
     static func cameraLookAheadDistance(for speed: CGFloat) -> CGFloat {
         max(minimumLookAheadDistance, speed * cameraLookAheadSeconds)
@@ -27,11 +30,21 @@ enum HoneySlideTuning {
     static func generationLookAheadDistance(for speed: CGFloat) -> CGFloat {
         max(minimumLookAheadDistance, speed * generationLookAheadSeconds)
     }
-    /// Geometry keeps rendering well beyond the perspective horizon. Its far
-    /// cap therefore lives above the screen instead of appearing as the end of
-    /// the slide at the skyline.
-    static let visualFarTravel: CGFloat = 1.82
-    static let visualNearTravel: CGFloat = -0.20
+    static func visibleAheadDistance(for speed: CGFloat) -> CGFloat {
+        max(minimumLookAheadDistance, speed * visibleAheadSeconds)
+    }
+    static func activeBehindDistance(for speed: CGFloat) -> CGFloat {
+        speed * visibleBehindSeconds
+    }
+    /// The Canvas camera is roughly half a second behind the rider. Geometry
+    /// remains active for two seconds behind it, but only the part in front of
+    /// the near plane is submitted. That makes the near cap land well below
+    /// the viewport instead of becoming a horizontal polygon edge.
+    static let cameraChaseSeconds: CGFloat = 0.48
+    static let cameraNearPlane: CGFloat = 1.4
+    static let perspectiveFOVDegrees: CGFloat = 64
+    static let worldLateralScale: CGFloat = 22
+    static let worldTrackHalfWidth: CGFloat = 4.8
     static let steeringResponse: CGFloat = 8.8
     static let steeringDragScale: CGFloat = 1.85
     static let railInset: CGFloat = 0.88
@@ -62,10 +75,10 @@ enum HoneySlideVisualQuality: Int, Comparable {
     }
 
     var floorSteps: Int {
-        switch self { case .high: 136; case .balanced: 104; case .constrained: 76 }
+        switch self { case .high: 184; case .balanced: 142; case .constrained: 104 }
     }
     var railSteps: Int {
-        switch self { case .high: 136; case .balanced: 102; case .constrained: 72 }
+        switch self { case .high: 184; case .balanced: 140; case .constrained: 100 }
     }
     var highlightCount: Int {
         switch self { case .high: 34; case .balanced: 27; case .constrained: 19 }
@@ -124,6 +137,7 @@ struct HoneySlideSegment: Identifiable {
     let troughDepth: CGFloat
     let railHeight: CGFloat
     let banking: CGFloat
+    let elevationUndulation: CGFloat
     let railings: Bool
     let speedMultiplier: CGFloat
     let cameraLookAhead: CGFloat
@@ -140,6 +154,7 @@ struct HoneySlideSegment: Identifiable {
          troughDepth: CGFloat = 0.10,
          railHeight: CGFloat = 0.13,
          banking: CGFloat = 0,
+         elevationUndulation: CGFloat = 0,
          railings: Bool = true,
          speedMultiplier: CGFloat = 1,
          cameraLookAhead: CGFloat = 1,
@@ -155,10 +170,51 @@ struct HoneySlideSegment: Identifiable {
         self.troughDepth = troughDepth
         self.railHeight = railHeight
         self.banking = banking
+        self.elevationUndulation = elevationUndulation
         self.railings = railings
         self.speedMultiplier = speedMultiplier
         self.cameraLookAhead = cameraLookAhead
         self.answerOffsets = answerOffsets
+    }
+}
+
+/// Lightweight world-space vector used by the route and camera. Keeping the
+/// math here makes the authored route genuinely three-dimensional without
+/// coupling gameplay to a particular rendering framework.
+struct HoneyVector3 {
+    var x: CGFloat
+    var y: CGFloat
+    var z: CGFloat
+
+    static let up = HoneyVector3(x: 0, y: 1, z: 0)
+
+    static func + (lhs: Self, rhs: Self) -> Self {
+        Self(x: lhs.x + rhs.x, y: lhs.y + rhs.y, z: lhs.z + rhs.z)
+    }
+
+    static func - (lhs: Self, rhs: Self) -> Self {
+        Self(x: lhs.x - rhs.x, y: lhs.y - rhs.y, z: lhs.z - rhs.z)
+    }
+
+    static func * (lhs: Self, rhs: CGFloat) -> Self {
+        Self(x: lhs.x * rhs, y: lhs.y * rhs, z: lhs.z * rhs)
+    }
+
+    func dot(_ other: Self) -> CGFloat {
+        x * other.x + y * other.y + z * other.z
+    }
+
+    func cross(_ other: Self) -> Self {
+        Self(x: y * other.z - z * other.y,
+             y: z * other.x - x * other.z,
+             z: x * other.y - y * other.x)
+    }
+
+    var length: CGFloat { sqrt(dot(self)) }
+
+    var normalized: Self {
+        let magnitude = max(0.000_001, length)
+        return self * (1 / magnitude)
     }
 }
 
@@ -205,6 +261,18 @@ struct HoneyTrackSample {
     }
 }
 
+/// A sampled 3D centerline and its local orthonormal frame. `right` follows
+/// the curve in world space; banking is applied around `tangent` by the camera
+/// projection when it constructs the trough cross-section.
+struct HoneyTrackFrame {
+    let distance: CGFloat
+    let position: HoneyVector3
+    let tangent: HoneyVector3
+    let right: HoneyVector3
+    let surfaceUp: HoneyVector3
+    let sample: HoneyTrackSample
+}
+
 struct HoneyRouteCheckpoint: Identifiable {
     let id: String
     let segmentID: String
@@ -215,33 +283,41 @@ struct HoneySlideRoute {
     static let verticalSlice = HoneySlideRoute(segments: [
         // A purpose-built downhill feel test: long descent, falling curves,
         // a short drop, a ravine jump, a low landing and a final fast run.
-        HoneySlideSegment("high-start-descent", kind: .wide, length: 54, width: 1.12,
-                          heightDelta: -16, cameraLookAhead: 1.10),
-        HoneySlideSegment("falling-soft-left", kind: .curve, length: 52, width: 1.12, endWidth: 1.00,
-                          lateralShift: -0.65, heightDelta: -15, bendAmplitude: -0.14,
-                          troughDepth: 0.13, banking: -0.13, cameraLookAhead: 1.16),
-        HoneySlideSegment("short-steep-drop", kind: .descent, length: 28, width: 1.00, endWidth: 0.94,
-                          lateralShift: -0.10, heightDelta: -15, troughDepth: 0.15,
+        HoneySlideSegment("high-start-descent", kind: .wide, length: 108, width: 1.12,
+                          heightDelta: -44, elevationUndulation: 2.8,
+                          cameraLookAhead: 1.10),
+        HoneySlideSegment("falling-soft-left", kind: .curve, length: 104, width: 1.12, endWidth: 1.00,
+                          lateralShift: -0.65, heightDelta: -42, bendAmplitude: -0.20,
+                          troughDepth: 0.13, banking: -0.20, elevationUndulation: -3.6,
+                          cameraLookAhead: 1.16),
+        HoneySlideSegment("short-steep-drop", kind: .descent, length: 56, width: 1.00, endWidth: 0.94,
+                          lateralShift: -0.10, heightDelta: -44, troughDepth: 0.15,
+                          elevationUndulation: 2.4,
                           speedMultiplier: 1.10, cameraLookAhead: 1.28),
-        HoneySlideSegment("descending-right-s", kind: .sCurve, length: 62, width: 0.94, endWidth: 1.08,
-                          lateralShift: 0.75, heightDelta: -19, bendAmplitude: 0.42,
-                          troughDepth: 0.14, banking: 0.15, cameraLookAhead: 1.18),
-        HoneySlideSegment("quiet-answer-run", kind: .answerApproach, length: 48, width: 1.08, endWidth: 1.18,
-                          heightDelta: -7, answerOffsets: [-0.74, -0.25, 0.25, 0.74]),
-        HoneySlideSegment("strong-valley-descent", kind: .descent, length: 42, width: 1.18, endWidth: 1.02,
-                          lateralShift: -0.25, heightDelta: -22, troughDepth: 0.15,
+        HoneySlideSegment("descending-right-s", kind: .sCurve, length: 124, width: 0.94, endWidth: 1.08,
+                          lateralShift: 0.75, heightDelta: -52, bendAmplitude: 0.48,
+                          troughDepth: 0.14, banking: 0.22, elevationUndulation: -4.4,
+                          cameraLookAhead: 1.18),
+        HoneySlideSegment("quiet-answer-run", kind: .answerApproach, length: 96, width: 1.08, endWidth: 1.18,
+                          heightDelta: -20, elevationUndulation: 1.6,
+                          answerOffsets: [-0.74, -0.25, 0.25, 0.74]),
+        HoneySlideSegment("strong-valley-descent", kind: .descent, length: 84, width: 1.18, endWidth: 1.02,
+                          lateralShift: -0.25, heightDelta: -60, troughDepth: 0.15,
+                          elevationUndulation: 3.6,
                           speedMultiplier: 1.14, cameraLookAhead: 1.30),
-        HoneySlideSegment("ravine-gap", kind: .jump, length: 12, width: 1.02, endWidth: 1.24,
-                          lateralShift: 0.05, heightDelta: -5, railings: false,
+        HoneySlideSegment("ravine-gap", kind: .jump, length: 24, width: 1.02, endWidth: 1.24,
+                          lateralShift: 0.05, heightDelta: -14, elevationUndulation: -1.0,
+                          railings: false,
                           speedMultiplier: 1.10, cameraLookAhead: 1.36),
-        HoneySlideSegment("low-valley-landing", kind: .landing, length: 38, width: 1.24, endWidth: 1.08,
-                          lateralShift: 0.08, heightDelta: -8),
-        HoneySlideSegment("long-fast-honey-slide", kind: .curve, length: 62, width: 1.08, endWidth: 1.16,
-                          lateralShift: 0.12, heightDelta: -20, bendAmplitude: 0.16,
-                          troughDepth: 0.14, banking: 0.11,
+        HoneySlideSegment("low-valley-landing", kind: .landing, length: 76, width: 1.24, endWidth: 1.08,
+                          lateralShift: 0.08, heightDelta: -24, elevationUndulation: 2.4),
+        HoneySlideSegment("long-fast-honey-slide", kind: .curve, length: 124, width: 1.08, endWidth: 1.16,
+                          lateralShift: 0.12, heightDelta: -56, bendAmplitude: 0.22,
+                          troughDepth: 0.14, banking: 0.16, elevationUndulation: -4.0,
                           speedMultiplier: 1.12, cameraLookAhead: 1.18),
-        HoneySlideSegment("valley-answer-finish", kind: .answerApproach, length: 50, width: 1.16, endWidth: 1.12,
-                          heightDelta: -8, answerOffsets: [-0.74, -0.25, 0.25, 0.74])
+        HoneySlideSegment("valley-answer-finish", kind: .answerApproach, length: 100, width: 1.16, endWidth: 1.12,
+                          lateralShift: 0, heightDelta: -24, elevationUndulation: 1.8,
+                          answerOffsets: [-0.74, -0.25, 0.25, 0.74])
     ])
 
     let segments: [HoneySlideSegment]
@@ -332,13 +408,32 @@ struct HoneySlideRoute {
         case .merge: split = 1 - eased
         default: split = 0
         }
+        let elevationShape = verticalShape(local)
+        let previousAverageSlope = previousSegment.heightDelta / max(previousSegment.length, 0.001)
+        let currentAverageSlope = segment.heightDelta / max(segment.length, 0.001)
+        let nextAverageSlope = nextSegment.heightDelta / max(nextSegment.length, 0.001)
+        let startSlope = monotoneJointSlope(previousAverageSlope, currentAverageSlope)
+        let endSlope = monotoneJointSlope(currentAverageSlope, nextAverageSlope)
+        let t2 = local * local
+        let t3 = t2 * local
+        let startTangent = startSlope * segment.length
+        let endTangent = endSlope * segment.length
+        let hermiteElevation = (local - 2 * t2 + t3) * startTangent
+            + (-2 * t3 + 3 * t2) * segment.heightDelta
+            + (t3 - t2) * endTangent
+        let hermiteDerivative = (1 - 4 * local + 3 * t2) * startTangent
+            + (-6 * t2 + 6 * local) * segment.heightDelta
+            + (3 * t2 - 2 * local) * endTangent
+        let elevationDerivative = hermiteDerivative
+            + segment.elevationUndulation * verticalShapeDerivative(local)
         return HoneyTrackSample(
             segmentID: segment.id,
             kind: segment.kind,
             localProgress: local,
             center: startCenters[index] + segment.lateralShift * eased + bend,
             width: segment.startWidth + (segment.endWidth - segment.startWidth) * eased,
-            elevation: startElevations[index] + segment.heightDelta * eased
+            elevation: startElevations[index] + hermiteElevation
+                + segment.elevationUndulation * elevationShape
                 + lap * elevationChangePerLap,
             splitAmount: split,
             troughDepth: segment.troughDepth
@@ -353,11 +448,34 @@ struct HoneySlideRoute {
             cameraLookAhead: segment.cameraLookAhead,
             answerOffsets: segment.answerOffsets,
             downhillSlope: atan2(
-                -(segment.heightDelta / max(segment.length, 0.001))
-                    * (6 * local * (1 - local)),
+                -(elevationDerivative / max(segment.length, 0.001)),
                 1
             )
         )
+    }
+
+    func frame(at rawDistance: CGFloat) -> HoneyTrackFrame {
+        let sample = sample(at: rawDistance)
+        let position = worldPosition(at: rawDistance)
+        let delta: CGFloat = 0.35
+        let tangent = (worldPosition(at: rawDistance + delta)
+                       - worldPosition(at: rawDistance - delta)).normalized
+        var right = HoneyVector3.up.cross(tangent).normalized
+        if right.length < 0.5 { right = HoneyVector3(x: 1, y: 0, z: 0) }
+        let surfaceUp = tangent.cross(right).normalized
+        return HoneyTrackFrame(distance: rawDistance,
+                               position: position,
+                               tangent: tangent,
+                               right: right,
+                               surfaceUp: surfaceUp,
+                               sample: sample)
+    }
+
+    private func worldPosition(at rawDistance: CGFloat) -> HoneyVector3 {
+        let sample = sample(at: rawDistance)
+        return HoneyVector3(x: sample.center * HoneySlideTuning.worldLateralScale,
+                            y: sample.elevation,
+                            z: rawDistance)
     }
 
     func nextSafeAnswerDistance(after rawDistance: CGFloat) -> CGFloat {
@@ -390,6 +508,27 @@ struct HoneySlideRoute {
 
     private func smoothstep(_ value: CGFloat) -> CGFloat {
         value * value * (3 - 2 * value)
+    }
+
+    /// Harmonic blending preserves the sign of two downhill slopes and gives
+    /// both neighbouring Hermite spans exactly the same boundary tangent.
+    private func monotoneJointSlope(_ a: CGFloat, _ b: CGFloat) -> CGFloat {
+        guard a * b > 0 else { return 0 }
+        return 2 * a * b / (a + b)
+    }
+
+    /// Zero position and zero derivative at both ends, so vertical shaping can
+    /// add crests/compressions without introducing a segment seam.
+    private func verticalShape(_ value: CGFloat) -> CGFloat {
+        let sine = sin(value * .pi)
+        return sine * sine * sin(value * .pi * 2)
+    }
+
+    private func verticalShapeDerivative(_ value: CGFloat) -> CGFloat {
+        let sine = sin(value * .pi)
+        let cosine = cos(value * .pi)
+        return 2 * .pi * sine * cosine * sin(value * .pi * 2)
+            + 2 * .pi * sine * sine * cos(value * .pi * 2)
     }
 
 #if DEBUG
@@ -428,6 +567,10 @@ struct HoneySlideRoute {
                    "Honey Slide width discontinuity near \(after.segmentID)")
             assert(abs(before.elevation - after.elevation) < 0.002,
                    "Honey Slide elevation discontinuity near \(after.segmentID)")
+            let beforeFrame = frame(at: boundary - epsilon)
+            let afterFrame = frame(at: boundary + epsilon)
+            assert(beforeFrame.tangent.dot(afterFrame.tangent) > 0.999,
+                   "Honey Slide tangent discontinuity near \(after.segmentID)")
         }
 
         let beforeSeam = sample(at: totalLength - epsilon)
@@ -438,6 +581,9 @@ struct HoneySlideRoute {
                "Honey Slide loop width seam is visible")
         assert(abs(beforeSeam.elevation - afterSeam.elevation) < 0.002,
                "Honey Slide loop elevation seam is visible")
+        assert(frame(at: totalLength - epsilon).tangent
+            .dot(frame(at: totalLength + epsilon).tangent) > 0.999,
+               "Honey Slide loop tangent seam is visible")
 
         for index in 0...512 {
             let sample = sample(at: CGFloat(index) / 512 * totalLength)

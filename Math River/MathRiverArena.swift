@@ -851,21 +851,26 @@ final class MathRiverArena: ObservableObject {
         let route = HoneySlideRoute.verticalSlice
         let sample = route.sample(at: scroll)
         let fps = frameIntervalEMA > 0 ? 1 / frameIntervalEMA : 0
-        let ready = HoneySlideTuning.generationLookAheadDistance(for: currentSlideSpeed)
-        return String(format: "FPS %.0f   %.1f ms\nSpeed %.1f   slope %.1f°\nElevation %.1f   ready %.0f m (%.1f s)\nSegments %d active / %d cached\nRuntime alloc 0   pooled seg 0\nTrack gen %.2f ms   particles %d pooled",
+        let projection = RiverProjection(size: size, phase: scroll, speed: currentSlideSpeed)
+        let ready = projection.generationReadyDistance
+        return String(format: "FPS %.0f   %.1f ms\nSpeed %.1f   slope %.1f°\nP %.0f m   C %.0f m   elevation %.1f\nActive -%.0f m (%.1f s)   visible +%.0f m (%.1f s)\nReady +%.0f m (%.1f s)   %d/%d segments\nTrack gen %.2f ms   particles %d pooled",
                       fps, frameIntervalEMA * 1_000,
                       currentSlideSpeed, sample.downhillSlope * 180 / .pi,
-                      sample.elevation, ready, HoneySlideTuning.generationLookAheadSeconds,
-                      activeSegmentCount(ahead: ready), route.segments.count,
+                      scroll, projection.cameraProgress, sample.elevation,
+                      projection.activeBehindDistance, HoneySlideTuning.visibleBehindSeconds,
+                      projection.visibleAheadDistance, HoneySlideTuning.visibleAheadSeconds,
+                      ready, HoneySlideTuning.generationLookAheadSeconds,
+                      activeSegmentCount(behind: projection.activeBehindDistance,
+                                         ahead: ready), route.segments.count,
                       HoneySlideProfiler.latestTrackGenerationMilliseconds, splashes.count)
     }
 
-    private func activeSegmentCount(ahead distance: CGFloat) -> Int {
+    private func activeSegmentCount(behind: CGFloat, ahead: CGFloat) -> Int {
         let route = HoneySlideRoute.verticalSlice
         var ids = Set<String>()
         let step: CGFloat = 4
-        var cursor: CGFloat = 0
-        while cursor <= distance {
+        var cursor = -behind
+        while cursor <= ahead {
             ids.insert(route.sample(at: scroll + cursor).segmentID)
             cursor += step
         }
@@ -882,9 +887,21 @@ struct RiverProjection {
     let phase: CGFloat
     let speed: CGFloat
     let lookAheadDistance: CGFloat
+    let activeBehindDistance: CGFloat
+    let visibleAheadDistance: CGFloat
+    let generationReadyDistance: CGFloat
+    let renderNearTravel: CGFloat
+    let renderFarTravel: CGFloat
+    let cameraProgress: CGFloat
 
-    private let currentSample: HoneyTrackSample
-    private let anticipationCenter: CGFloat
+    private let currentFrame: HoneyTrackFrame
+    private let cameraPosition: HoneyVector3
+    private let cameraForward: HoneyVector3
+    private let cameraRight: HoneyVector3
+    private let cameraUp: HoneyVector3
+    private let focalLength: CGFloat
+    private let principalY: CGFloat
+    private let currentCameraDepth: CGFloat
 
     private var route: HoneySlideRoute { .verticalSlice }
 
@@ -896,15 +913,68 @@ struct RiverProjection {
         self.speed = speed
         lookAheadDistance = HoneySlideTuning.cameraLookAheadDistance(for: speed)
         let route = HoneySlideRoute.verticalSlice
-        let current = route.sample(at: phase)
-        currentSample = current
+        let current = route.frame(at: phase)
+        currentFrame = current
+
+        activeBehindDistance = HoneySlideTuning.activeBehindDistance(for: speed)
+        visibleAheadDistance = HoneySlideTuning.visibleAheadDistance(for: speed)
+        generationReadyDistance = HoneySlideTuning.generationLookAheadDistance(for: speed)
+
+        let chaseDistance = max(13, speed * HoneySlideTuning.cameraChaseSeconds)
+        cameraProgress = phase - chaseDistance
+        let cameraTrackFrame = route.frame(at: phase - chaseDistance)
+        let cameraHeight: CGFloat = 8.5
+        let camera = cameraTrackFrame.position + HoneyVector3.up * cameraHeight
+        cameraPosition = camera
+
         let aimDistance = speed * HoneySlideTuning.cameraAimSeconds
-            * current.cameraLookAhead
-        anticipationCenter = (route.sample(at: phase + aimDistance).center - current.center) * 0.18
+            * current.sample.cameraLookAhead
+        let authoredAim = route.frame(at: phase + aimDistance).position
+        // Pitch follows only part of the track's vertical change. Yaw follows
+        // the spline, while world-up remains stable, so a 30° drop still reads
+        // as a 30° drop against trees, cliffs and the horizon.
+        let pitchFollow: CGFloat = 0.36
+        let aim = HoneyVector3(
+            x: authoredAim.x,
+            y: current.position.y
+                + (authoredAim.y - current.position.y) * pitchFollow - 2.0,
+            z: authoredAim.z
+        )
+        let forward = (aim - camera).normalized
+        cameraForward = forward
+        cameraRight = HoneyVector3.up.cross(forward).normalized
+        cameraUp = forward.cross(cameraRight).normalized
+
+        let fovRadians = HoneySlideTuning.perspectiveFOVDegrees * .pi / 180
+        focalLength = size.height * 0.5 / tan(fovRadians * 0.5)
+        let currentRelative = current.position - camera
+        let currentDepth = max(HoneySlideTuning.cameraNearPlane,
+                               currentRelative.dot(forward))
+        currentCameraDepth = currentDepth
+        let currentVertical = currentRelative.dot(cameraUp)
+        let desiredBoatY = size.height * 0.79
+        principalY = desiredBoatY + currentVertical / currentDepth * focalLength
+
+        // Keep the submitted near cap just in front of the camera plane, where
+        // it projects below and wider than the viewport. The authored route
+        // itself remains active for the full two-second safety window.
+        let renderBehind = max(0, chaseDistance - HoneySlideTuning.cameraNearPlane * 1.7)
+        renderNearTravel = -renderBehind / lookAheadDistance
+        // Twelve seconds are submitted: ten seconds fully readable plus a
+        // two-second atmospheric guard. Fifteen seconds are ready in the route
+        // cache/debug lifecycle before any of it can enter that range.
+        let renderAhead = visibleAheadDistance + speed * 2
+        renderFarTravel = renderAhead / lookAheadDistance
     }
 
-    var horizonY: CGFloat { size.height * 0.15 }
-    var boatY: CGFloat { size.height * 0.82 }
+    var horizonY: CGFloat {
+        let horizontalForward = sqrt(cameraForward.x * cameraForward.x
+                                     + cameraForward.z * cameraForward.z)
+        let pitch = atan2(cameraForward.y, max(0.001, horizontalForward))
+        return min(size.height * 0.31,
+                   max(size.height * 0.10, principalY + tan(pitch) * focalLength))
+    }
+    var boatY: CGFloat { size.height * 0.79 }
     var centerX: CGFloat { size.width * 0.5 }
 
     struct ProjectedTrackSample {
@@ -914,6 +984,8 @@ struct RiverProjection {
         let y: CGFloat
         let center: CGFloat
         let halfWidth: CGFloat
+        let leftEdgeY: CGFloat
+        let rightEdgeY: CGFloat
 
         var bandEdges: [(left: CGFloat, right: CGFloat)] {
             guard track.splitAmount > 0.055 else {
@@ -933,55 +1005,50 @@ struct RiverProjection {
     /// 0 at the far water, 1 at the boat. Same far plane as `y`, so size and
     /// position stay in step and the approach never eases off near the hull.
     func nearness(for travel: CGFloat) -> CGFloat {
-        min(max((RiverConfig.farTravel - travel) / RiverConfig.farTravel, 0), 1)
+        let distance = max(0, travel * lookAheadDistance)
+        return 1 - min(1, distance / max(1, visibleAheadDistance))
     }
 
     func scale(for travel: CGFloat) -> CGFloat {
-        let base = 0.31 + 0.69 * nearness(for: travel)
-        return base * (1 - 0.42 * beyondHorizonProgress(for: travel))
+        let point = route.frame(at: phase + travel * lookAheadDistance).position
+        let depth = max(HoneySlideTuning.cameraNearPlane,
+                        (point - cameraPosition).dot(cameraForward))
+        return min(2.4, max(0.025, currentCameraDepth / depth))
     }
 
-    private func baseY(for travel: CGFloat) -> CGFloat {
-        if travel >= 0 {
-            let far = RiverConfig.farTravel
-            let t = min(travel, far) / far
-            var y = horizonY + (boatY - horizonY) * pow(1 - t, 1.48)
-            if travel > far {
-                // Continue above the skyline until the cap is safely outside
-                // the viewport. Curves can now enter from beyond the horizon
-                // instead of terminating in a horizontal edge.
-                let extensionProgress = beyondHorizonProgress(for: travel)
-                y = horizonY - (horizonY + size.height * 0.06) * extensionProgress
-            }
-            return y
-        } else {
-            let past = min(1, -travel / 0.42)
-            return boatY + (size.height - boatY) * past
-        }
+    private func project(_ world: HoneyVector3) -> CGPoint {
+        let relative = world - cameraPosition
+        let depth = max(HoneySlideTuning.cameraNearPlane,
+                        relative.dot(cameraForward))
+        return CGPoint(x: centerX + relative.dot(cameraRight) / depth * focalLength,
+                       y: principalY - relative.dot(cameraUp) / depth * focalLength)
     }
 
     /// One route lookup produces every screen-space value needed by a track
     /// cross-section. Canvas passes share these projected sections instead of
     /// recursively re-sampling center, elevation, width and split topology.
     func projectedSample(for travel: CGFloat) -> ProjectedTrackSample {
-        let track = sample(for: travel)
+        let frame = route.frame(at: phase + travel * lookAheadDistance)
+        let track = frame.sample
         let near = nearness(for: travel)
         let perspective = scale(for: travel)
-        let elevationShift = (track.elevation - currentSample.elevation)
-            * size.height * 0.015 * perspective
-        let meander = (track.center - currentSample.center - anticipationCenter)
-            * size.width * 0.40
-        let distantTaper = 1 - 0.58 * beyondHorizonProgress(for: travel)
-        let speedFOV = 1 - min(0.07, max(0, speed / HoneySlideTuning.nominalSlideSpeed - 1) * 0.20)
-        let halfWidth = size.width * (0.060 + 0.33 * pow(near, 1.35))
-            * track.width * distantTaper * speedFOV
+        let bank = track.banking
+        let crossAxis = (frame.right * cos(bank) + frame.surfaceUp * sin(bank)).normalized
+        let worldHalfWidth = HoneySlideTuning.worldTrackHalfWidth * track.width
+        let centerPoint = project(frame.position)
+        let leftPoint = project(frame.position - crossAxis * worldHalfWidth)
+        let rightPoint = project(frame.position + crossAxis * worldHalfWidth)
+        let center = (leftPoint.x + rightPoint.x) * 0.5
+        let halfWidth = max(0.5, abs(rightPoint.x - leftPoint.x) * 0.5)
         return ProjectedTrackSample(
             track: track,
             nearness: near,
             scale: perspective,
-            y: baseY(for: travel) - elevationShift,
-            center: centerX + meander,
-            halfWidth: halfWidth
+            y: centerPoint.y,
+            center: center,
+            halfWidth: halfWidth,
+            leftEdgeY: leftPoint.y,
+            rightEdgeY: rightPoint.y
         )
     }
 
@@ -1008,14 +1075,6 @@ struct RiverProjection {
         projectedSample(for: travel).halfWidth
     }
 
-    /// Smooth 0...1 continuation from the perspective horizon to the hidden
-    /// off-screen render cap.
-    private func beyondHorizonProgress(for travel: CGFloat) -> CGFloat {
-        let span = max(0.001, HoneySlideTuning.visualFarTravel - RiverConfig.farTravel)
-        let raw = min(max((travel - RiverConfig.farTravel) / span, 0), 1)
-        return raw * raw * (3 - 2 * raw)
-    }
-
     func x(lateral: CGFloat, travel: CGFloat) -> CGFloat {
         let projected = projectedSample(for: travel)
         return projected.center + lateral * projected.halfWidth * 0.82
@@ -1023,8 +1082,10 @@ struct RiverProjection {
 
     func point(lateral: CGFloat, travel: CGFloat) -> CGPoint {
         let projected = projectedSample(for: travel)
+        let t = min(1, max(0, (lateral * 0.82 + 1) * 0.5))
         return CGPoint(x: projected.center + lateral * projected.halfWidth * 0.82,
-                       y: projected.y)
+                       y: projected.leftEdgeY
+                        + (projected.rightEdgeY - projected.leftEdgeY) * t)
     }
 
     func riverLeft(travel: CGFloat) -> CGFloat {
@@ -1061,7 +1122,9 @@ struct RiverProjection {
     func pointAcross(_ t: CGFloat, travel: CGFloat) -> CGPoint {
         let projected = projectedSample(for: travel)
         let left = projected.center - projected.halfWidth
-        return CGPoint(x: left + projected.halfWidth * 2 * t, y: projected.y)
+        return CGPoint(x: left + projected.halfWidth * 2 * t,
+                       y: projected.leftEdgeY
+                        + (projected.rightEdgeY - projected.leftEdgeY) * t)
     }
 
     /// One band on normal track, two gradually separating bands through a
@@ -1072,9 +1135,9 @@ struct RiverProjection {
 
     func riverPath() -> Path {
         var path = Path()
-        let steps = 28
-        let far = HoneySlideTuning.visualFarTravel
-        let near = HoneySlideTuning.visualNearTravel
+        let steps = 56
+        let far = renderFarTravel
+        let near = renderNearTravel
         for i in 0...steps {
             let travel = far - CGFloat(i) / CGFloat(steps) * (far - near)
             let point = CGPoint(x: riverLeft(travel: travel), y: y(for: travel))
