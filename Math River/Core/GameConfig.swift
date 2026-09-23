@@ -148,6 +148,21 @@ nonisolated public enum GameConfig {
     /// Seconds from the moment a honey-pot group is on screen until the first
     /// pot reaches the boat. The player reads the sum in this window.
     public static let riverApproachDuration = 4.0
+    /// Bounds around the adaptive reading window. The slide may look fast, but
+    /// a child never has to solve a sum as a split-second reaction test.
+    public static let riverMinimumApproachDuration = 3.5
+    public static let riverMaximumApproachDuration = 5.4
+    /// The opening rounds teach the rhythm before the run starts tightening.
+    public static let riverFirstRoundWarmup = 0.8
+    public static let riverSecondRoundWarmup = 0.4
+    /// Amount removed gradually between the opening and final round.
+    public static let riverSessionPressure = 0.5
+    /// Fractions and percentages need an extra reading beat even when their
+    /// arithmetic happens to be easy.
+    public static let riverFractionReadingBonus = 0.55
+    public static let riverPercentageReadingBonus = 0.35
+    public static let riverLongPromptThreshold = 13
+    public static let riverLongPromptReadingBonus = 0.2
     /// Quiet water after the last pot of a group has gone by, before the next
     /// sum appears.
     public static let riverGroupGap = 1.25

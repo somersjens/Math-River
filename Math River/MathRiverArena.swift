@@ -50,6 +50,47 @@ enum RiverConfig {
     static let bankRight: CGFloat = 0.82
 }
 
+/// Converts mathematical reading load and session progress into a predictable
+/// decision window. It changes where a wave is placed on the authored route;
+/// the rider and camera keep their normal speed, so difficulty never feels like
+/// hidden input lag or a sudden physics change.
+nonisolated struct RiverRoundPacing: Equatable {
+    let decisionTime: Double
+
+    static func make(roundNumber: Int,
+                     maximumRounds: Int,
+                     question: MathQuestion) -> Self {
+        let safeMaximum = max(1, maximumRounds)
+        let progress = Double(max(0, min(safeMaximum, roundNumber) - 1))
+            / Double(max(1, safeMaximum - 1))
+        var duration = GameConfig.riverApproachDuration
+            - progress * GameConfig.riverSessionPressure
+
+        if roundNumber <= 1 {
+            duration += GameConfig.riverFirstRoundWarmup
+        } else if roundNumber == 2 {
+            duration += GameConfig.riverSecondRoundWarmup
+        }
+
+        switch question.kind {
+        case .fraction:
+            duration += GameConfig.riverFractionReadingBonus
+        case .percentage:
+            duration += GameConfig.riverPercentageReadingBonus
+        case .addition, .subtraction, .multiplication:
+            break
+        }
+
+        if question.prompt.count >= GameConfig.riverLongPromptThreshold {
+            duration += GameConfig.riverLongPromptReadingBonus
+        }
+
+        return Self(decisionTime: min(GameConfig.riverMaximumApproachDuration,
+                                      max(GameConfig.riverMinimumApproachDuration,
+                                          duration)))
+    }
+}
+
 // MARK: - Live objects
 
 struct RiverPot: Identifiable, Equatable {
@@ -114,12 +155,12 @@ private enum RiverFormation {
     static func slots(for roundNumber: Int) -> [(lateral: CGFloat, extra: CGFloat)] {
         let extra: CGFloat = 0.02
         switch roundNumber % 6 {
-        case 0: return [(-0.28, 0), (-0.80, extra), (0.79, extra), (0.30, extra * 2)]
-        case 1: return [(-0.81, 0), (-0.22, extra * 0.85), (0.77, extra * 1.7), (0.24, extra * 2.5)]
-        case 2: return [(0.81, 0), (0.18, extra * 0.85), (-0.76, extra * 1.7), (-0.28, extra * 2.5)]
-        case 3: return [(-0.71, 0), (0.74, extra * 0.7), (0.10, extra * 1.6), (-0.38, extra * 2.4)]
-        case 4: return [(0.02, 0), (0.81, extra * 0.8), (-0.79, extra * 1.6), (0.34, extra * 2.4)]
-        default: return [(-0.78, 0), (0.76, 0), (-0.15, extra * 1.15), (0.46, extra * 2.2)]
+        case 0: return [(-0.38, 0), (-0.80, extra), (0.79, extra), (0.40, extra * 2)]
+        case 1: return [(-0.81, 0), (-0.36, extra * 0.85), (0.77, extra * 1.7), (0.38, extra * 2.5)]
+        case 2: return [(0.81, 0), (0.36, extra * 0.85), (-0.76, extra * 1.7), (-0.38, extra * 2.5)]
+        case 3: return [(-0.71, 0), (0.74, extra * 0.7), (0.38, extra * 1.6), (-0.40, extra * 2.4)]
+        case 4: return [(0.38, 0), (0.81, extra * 0.8), (-0.79, extra * 1.6), (-0.40, extra * 2.4)]
+        default: return [(-0.78, 0), (0.76, 0), (-0.38, extra * 1.15), (0.40, extra * 2.2)]
         }
     }
 }
@@ -142,6 +183,7 @@ final class MathRiverArena: ObservableObject {
     /// only for projection and existing answer hit testing.
     @Published private(set) var lateralPosition: CGFloat = 0
     @Published private(set) var lateralVelocity: CGFloat = 0
+    @Published private(set) var steeringTargetLateral: CGFloat = 0
     @Published private(set) var steeringInput: CGFloat = 0
     @Published private(set) var curveDriftAcceleration: CGFloat = 0
     @Published private(set) var displayLateral: CGFloat = 0
@@ -183,6 +225,7 @@ final class MathRiverArena: ObservableObject {
     var onTutorialEvent: ((CrabTutorialEvent) -> Void)?
 
     private var loadedRoundID: UUID?
+    private var maximumRounds = GameConfig.levelMaximum
     private var pendingRound: GameRound?
     private var lastRound: GameRound?
     private var waveResolved = false
@@ -194,6 +237,7 @@ final class MathRiverArena: ObservableObject {
     private var reduceMotion = false
     private var scoreTarget: CGPoint?
     private var steeringOrigin: CGPoint?
+    private var steeringOriginLateral: CGFloat = 0
     private var lastTrackKind: HoneySegmentKind = .wide
     private var entranceRemaining: Double = 0
     private var entranceCompletion: (() -> Void)?
@@ -252,6 +296,9 @@ final class MathRiverArena: ObservableObject {
     func setLive(_ live: Bool) { isLive = live }
     func setReduceMotion(_ reduces: Bool) { reduceMotion = reduces }
     func setScoreTarget(_ target: CGPoint?) { scoreTarget = target }
+    func configureSession(maximumRounds: Int) {
+        self.maximumRounds = max(1, maximumRounds)
+    }
 
     func setRunning(_ running: Bool) {
         if running {
@@ -321,6 +368,7 @@ final class MathRiverArena: ObservableObject {
         pendingRound = lastRound
         lateralPosition = 0
         lateralVelocity = 0
+        steeringTargetLateral = 0
         steeringInput = 0
         curveDriftAcceleration = 0
         displayLateral = 0
@@ -368,16 +416,24 @@ final class MathRiverArena: ObservableObject {
     func beginSteering(at point: CGPoint) {
         guard steeringOrigin == nil else { return }
         steeringOrigin = point
+        steeringOriginLateral = displayLateral
+        steeringTargetLateral = displayLateral
     }
 
     func updateSteering(to point: CGPoint) {
         guard let origin = steeringOrigin, size.width > 0 else { return }
-        let forceTravel = max(44, size.width * 0.24)
-        steeringInput = min(1, max(-1, (point.x - origin.x) / forceTravel))
+        let delta = (point.x - origin.x) / size.width
+            * HoneySlideTuning.steeringDragScale
+        steeringTargetLateral = min(1, max(-1, steeringOriginLateral + delta))
+        let error = steeringTargetLateral - displayLateral
+        steeringInput = min(1, max(-1, error / 0.24))
     }
 
     func endSteering() {
         steeringOrigin = nil
+        // Releasing the finger means stop steering at the current location.
+        // Keeping the old force alive made the rider coast across the slide.
+        steeringTargetLateral = displayLateral
         steeringInput = 0
     }
 
@@ -390,16 +446,26 @@ final class MathRiverArena: ObservableObject {
             return
         }
         let options = round.options
-        let checkpointDistance = HoneySlideRoute.verticalSlice.nextSafeAnswerDistance(after: scroll)
+        let pacing = RiverRoundPacing.make(roundNumber: round.number,
+                                           maximumRounds: maximumRounds,
+                                           question: round.question)
+        let minimumLeadDistance = currentSlideSpeed * CGFloat(pacing.decisionTime)
+        let checkpointDistance = HoneySlideRoute.verticalSlice.nextSafeAnswerDistance(
+            after: scroll,
+            minimumLeadDistance: minimumLeadDistance
+        )
         let checkpointTravel = (checkpointDistance - scroll)
             / HoneySlideTuning.cameraLookAheadDistance(for: currentSlideSpeed)
-        let checkpointOffsets = HoneySlideRoute.verticalSlice.sample(at: checkpointDistance).answerOffsets
+        let checkpoint = HoneySlideRoute.verticalSlice.sample(at: checkpointDistance)
+        let checkpointOffsets = checkpoint.answerOffsets
         var pots: [RiverPot] = []
         for (index, option) in options.enumerated() {
             let slot = slots[index % slots.count]
-            let lateral = checkpointOffsets.isEmpty
+            let proposedLateral = checkpointOffsets.isEmpty
                 ? slot.lateral
                 : checkpointOffsets[index % checkpointOffsets.count]
+            let lateral = HoneySlideTuning.answerLateral(proposedLateral,
+                                                         trackWidth: checkpoint.width)
             let side: Int
             if lateral < -0.20 { side = 0 }
             else if lateral > 0.20 { side = 1 }
@@ -573,10 +639,10 @@ final class MathRiverArena: ObservableObject {
 #if DEBUG
         if let previewSteering = HoneySlidePreviewMode.steeringInput {
             steeringInput = previewSteering
+            steeringTargetLateral = previewSteering
         }
 #endif
         integrateLateralMotion(dt: dt, frame: frame)
-        cameraLateral += (displayLateral - cameraLateral) * CGFloat(min(1, dt * 2.4))
 
         jumpLift = sample.isAir
             ? CGFloat(sin(Double(sample.localProgress) * .pi)) * HoneySlideTuning.jumpHeight
@@ -641,6 +707,16 @@ final class MathRiverArena: ObservableObject {
             minimum = halfWidth * 0.28
         }
 
+        var targetNormalized = min(allowedNormalized,
+                                   max(-allowedNormalized, steeringTargetLateral))
+        if sample.locksBranch, activeBranch < 0 {
+            targetNormalized = min(-0.28, targetNormalized)
+        } else if sample.locksBranch, activeBranch > 0 {
+            targetNormalized = max(0.28, targetNormalized)
+        }
+        steeringTargetLateral = targetNormalized
+        let targetPosition = targetNormalized * halfWidth
+
         let bankingHelpsCurve = sample.banking * frame.curvature > 0
         let bankCompensation = bankingHelpsCurve
             ? max(0.38, 1 - abs(sample.banking) * HoneySlideTuning.bankingDriftCompensation)
@@ -655,10 +731,19 @@ final class MathRiverArena: ObservableObject {
         while remaining > 0.000_001 {
             let step = min(remaining, HoneySlideTuning.lateralSimulationStep)
             let h = CGFloat(step)
-            let steering = steeringInput * HoneySlideTuning.steeringAcceleration
+            // Treat a drag as a desired position, not as an indefinitely held
+            // acceleration. A damped velocity servo stays responsive at 30,
+            // 60 and 120 Hz and comes to rest when the drag is released.
+            let response = HoneySlideTuning.steeringResponse
                 * sample.steeringResponseMultiplier
-            lateralVelocity += (steering + curveDriftAcceleration) * h
-            lateralVelocity *= CGFloat(exp(-Double(HoneySlideTuning.lateralDrag) * step))
+            let desiredVelocity = min(HoneySlideTuning.maxLateralSpeed,
+                                      max(-HoneySlideTuning.maxLateralSpeed,
+                                          (targetPosition - lateralPosition) * response))
+            let velocityBlend = CGFloat(1 - exp(-Double(
+                response * HoneySlideTuning.lateralDrag
+            ) * step))
+            lateralVelocity += (desiredVelocity - lateralVelocity) * velocityBlend
+            lateralVelocity += curveDriftAcceleration * h
             lateralVelocity = min(HoneySlideTuning.maxLateralSpeed,
                                   max(-HoneySlideTuning.maxLateralSpeed, lateralVelocity))
             lateralPosition += lateralVelocity * h
@@ -1036,9 +1121,11 @@ struct RiverProjection {
         cameraProgress = phase - chaseDistance
         let cameraTrackFrame = route.frame(at: phase - chaseDistance)
         let cameraHeight: CGFloat = 8.5
-        let focusOffset = current.right * (HoneySlideTuning.worldTrackHalfWidth
-            * current.sample.width * focusLateral * 0.58)
-        let camera = cameraTrackFrame.position + HoneyVector3.up * cameraHeight + focusOffset
+        // Steering must move the rider across a stable world. Moving both the
+        // camera and its aim point with the rider made the complete track jump
+        // sideways and visually cancelled much of the character movement.
+        _ = focusLateral
+        let camera = cameraTrackFrame.position + HoneyVector3.up * cameraHeight
         cameraPosition = camera
 
         let aimDistance = speed * HoneySlideTuning.cameraAimSeconds
@@ -1053,7 +1140,7 @@ struct RiverProjection {
             y: current.position.y
                 + (authoredAim.y - current.position.y) * pitchFollow - 2.0,
             z: authoredAim.z
-        ) + focusOffset
+        )
         let forward = (aim - camera).normalized
         cameraForward = forward
         cameraRight = HoneyVector3.up.cross(forward).normalized

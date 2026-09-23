@@ -196,7 +196,7 @@ struct LevelIntroCard: View {
                             .accessibilityIdentifier("intro-back")
                         }
 
-                        if isContinuation {
+                        if isContinuation, !isTutorialArmed {
                             pausedMessage
                         }
                     }
@@ -219,9 +219,9 @@ struct LevelIntroCard: View {
         }
     }
 
-    /// What the big button promises. The walkthrough takes precedence over
-    /// everything else: it can only be armed on a fresh run, so it can never
-    /// contradict the continuation label.
+    /// What the big button promises. The walkthrough takes precedence: a
+    /// zero-point pause is rewound into a lesson, so this label can replace
+    /// Continue without throwing scored progress away.
     private var startTitleKey: LocalizedStringKey {
         if isTutorialArmed { return "game.intro.startTutorial" }
         return isContinuation ? "game.intro.continue" : "game.intro.start"

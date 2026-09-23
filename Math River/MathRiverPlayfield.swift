@@ -63,6 +63,7 @@ struct MathRiverPlayfield: View {
                 arena.layout(size: size, isPad: isPad)
                 arena.setReduceMotion(reduceMotion)
                 arena.setScoreTarget(scoreTarget)
+                arena.configureSession(maximumRounds: maximumRounds)
                 arena.setLive(isLive)
                 arena.load(round: round)
                 arena.setRunning(isRunning)
@@ -594,18 +595,45 @@ private struct RiverWater: View {
                           geometry: TrackGeometry,
                           slices: [TrackSlice]) {
         drawWoodenSupports(in: &context, quality: quality)
-        drawGuaranteedOpaqueStructure(in: &context, slices: slices)
-        drawTrackBody(in: &context, geometry: geometry)
-        drawGuaranteedOpaqueFloor(in: &context, slices: slices)
+        drawTrackBackToFront(in: &context, slices: slices)
         drawCenterGlow(in: &context, path: geometry.centerGlow)
     }
 
-    /// Every body quad gets an un-antialiased alpha-1 base before its decorative
-    /// gradient. This prevents sub-pixel scenery seams between adjacent slices.
-    private func drawGuaranteedOpaqueStructure(in context: inout GraphicsContext,
-                                               slices: [TrackSlice]) {
+    /// Paint complete cross-sections from far to near. Drawing all walls first
+    /// and every floor afterwards let a distant floor cover a nearer wall when
+    /// a downhill curve overlapped itself in screen space, producing the large
+    /// orange flashes/crossbars that looked like broken track geometry.
+    private func drawTrackBackToFront(in context: inout GraphicsContext,
+                                      slices: [TrackSlice]) {
         guard slices.count > 1 else { return }
         let noSeams = FillStyle(eoFill: false, antialiased: false)
+        let underbodyPaint = GraphicsContext.Shading.linearGradient(
+            Gradient(colors: [
+                Color(red: 0.50, green: 0.22, blue: 0.045),
+                Color(red: 0.31, green: 0.095, blue: 0.018)
+            ]),
+            startPoint: CGPoint(x: projection.centerX, y: projection.horizonY),
+            endPoint: CGPoint(x: projection.centerX, y: projection.size.height)
+        )
+        let leftWallPaint = GraphicsContext.Shading.linearGradient(
+            Gradient(colors: [RiverPaint.body, RiverPaint.trough]),
+            startPoint: .zero,
+            endPoint: CGPoint(x: projection.size.width, y: 0)
+        )
+        let rightWallPaint = GraphicsContext.Shading.linearGradient(
+            Gradient(colors: [RiverPaint.trough, RiverPaint.body]),
+            startPoint: .zero,
+            endPoint: CGPoint(x: projection.size.width, y: 0)
+        )
+        let floorPaint = GraphicsContext.Shading.linearGradient(
+            Gradient(stops: [
+                .init(color: Color(red: 1.00, green: 0.78, blue: 0.12), location: 0),
+                .init(color: Color(red: 1.00, green: 0.61, blue: 0.035), location: 0.52),
+                .init(color: Color(red: 0.91, green: 0.39, blue: 0.015), location: 1)
+            ]),
+            startPoint: CGPoint(x: projection.centerX, y: projection.horizonY),
+            endPoint: CGPoint(x: projection.centerX, y: projection.size.height)
+        )
         for index in 0..<(slices.count - 1) {
             let aSlice = slices[index]
             let bSlice = slices[index + 1]
@@ -628,46 +656,16 @@ private struct RiverWater: View {
                 let b = matched.1[bandIndex]
                 context.fill(quad(a.undersideLeft, a.undersideRight,
                                   b.undersideRight, b.undersideLeft),
-                             with: .color(Color(red: 0.31, green: 0.09, blue: 0.01)),
+                             with: underbodyPaint,
                              style: noSeams)
                 context.fill(quad(a.outerLeft, a.floorLeft,
                                   b.floorLeft, b.outerLeft),
-                             with: .color(Color(red: 0.88, green: 0.35, blue: 0.01)),
+                             with: leftWallPaint,
                              style: noSeams)
                 context.fill(quad(a.floorRight, a.outerRight,
                                   b.outerRight, b.floorRight),
-                             with: .color(Color(red: 0.88, green: 0.35, blue: 0.01)),
+                             with: rightWallPaint,
                              style: noSeams)
-            }
-        }
-    }
-
-    /// Closed floor quads are submitted independently after the body. A single
-    /// compound path can cancel/self-intersect when a projected curve folds
-    /// over itself; drawing this alpha-1 pass last also guarantees the underbody
-    /// can never bleed through the playable surface.
-    private func drawGuaranteedOpaqueFloor(in context: inout GraphicsContext,
-                                           slices: [TrackSlice]) {
-        guard slices.count > 1 else { return }
-        let floorPaint = GraphicsContext.Shading.linearGradient(
-            Gradient(stops: [
-                .init(color: Color(red: 1.00, green: 0.78, blue: 0.12), location: 0),
-                .init(color: Color(red: 1.00, green: 0.61, blue: 0.035), location: 0.52),
-                .init(color: Color(red: 0.91, green: 0.39, blue: 0.015), location: 1)
-            ]),
-            startPoint: CGPoint(x: projection.centerX, y: projection.horizonY),
-            endPoint: CGPoint(x: projection.centerX, y: projection.size.height)
-        )
-        let noSeams = FillStyle(eoFill: false, antialiased: false)
-        for index in 0..<(slices.count - 1) {
-            let aSlice = slices[index]
-            let bSlice = slices[index + 1]
-            guard aSlice.projected.track.hasSurface,
-                  bSlice.projected.track.hasSurface else { continue }
-            let matched = matchedSections(aSlice.bands, bSlice.bands)
-            for bandIndex in 0..<min(matched.0.count, matched.1.count) {
-                let a = matched.0[bandIndex]
-                let b = matched.1[bandIndex]
                 context.fill(quad(a.floorLeft, a.floorRight,
                                   b.floorRight, b.floorLeft),
                              with: floorPaint,
@@ -878,16 +876,37 @@ private struct RiverWater: View {
         let steps = quality.floorSteps
         let far = projection.renderFarTravel
         let near = projection.renderNearTravel
-        return (0...steps).map { index in
+        var travels = (0...steps).map { index in
             // Quadratic spacing spends most topology close to the camera,
             // where seams and silhouette changes have the most screen area.
             // The analytical route is already ready 15 seconds ahead, so this
             // is projection only—no synchronous segment creation occurs here.
             let progress = CGFloat(index) / CGFloat(steps)
             let distanceShare = pow(1 - progress, 2.15)
-            let travel = near + (far - near) * distanceShare
-            return trackSlice(at: travel)
+            return near + (far - near) * distanceShare
         }
+
+        let lowerDistance = projection.phase + near * projection.lookAheadDistance
+        let upperDistance = projection.phase + far * projection.lookAheadDistance
+        let boundaryEpsilon: CGFloat = 0.002
+        for boundary in HoneySlideRoute.verticalSlice.segmentBoundaries(
+            from: lowerDistance,
+            through: upperDistance
+        ) {
+            for offset in [-boundaryEpsilon, 0, boundaryEpsilon] {
+                let travel = (boundary + offset - projection.phase)
+                    / projection.lookAheadDistance
+                if travel >= near, travel <= far { travels.append(travel) }
+            }
+        }
+
+        travels.sort(by: >)
+        var uniqueTravels: [CGFloat] = []
+        for travel in travels
+        where uniqueTravels.last.map({ abs($0 - travel) > 0.000_001 }) ?? true {
+            uniqueTravels.append(travel)
+        }
+        return uniqueTravels.map(trackSlice(at:))
     }
 
     private func quad(_ a: CGPoint, _ b: CGPoint, _ c: CGPoint, _ d: CGPoint) -> Path {
@@ -2438,6 +2457,7 @@ private struct RiverAnswerStoneShape: Shape {
 struct RiverQuestionBanner: View {
     let prompt: String
     let roundID: UUID?
+    let feedback: RoundAnswerFeedback?
     let ink: Color
     let isPad: Bool
 
@@ -2457,7 +2477,24 @@ struct RiverQuestionBanner: View {
     private static let creamBottom: CGFloat = 0.295
 
     @State private var shownPrompt = ""
+    @State private var shownKind: RoundAnswerFeedbackKind?
     @State private var isVisible = true
+    @State private var revealRevision = 0
+
+    private var content: Content {
+        guard let feedback, feedback.roundID == roundID else {
+            return Content(id: roundID, text: prompt, kind: nil)
+        }
+        return Content(id: roundID, text: feedback.text, kind: feedback.kind)
+    }
+
+    private var displayedInk: Color {
+        switch shownKind {
+        case .correct: return Color(red: 0.08, green: 0.50, blue: 0.20)
+        case .wrong: return Color(red: 0.76, green: 0.15, blue: 0.12)
+        case nil: return ink
+        }
+    }
 
     var body: some View {
         Image("som_board")
@@ -2472,7 +2509,7 @@ struct RiverQuestionBanner: View {
                         .font(.system(size: isPad ? 51 : 37, weight: .black, design: .rounded))
                         .minimumScaleFactor(0.34)
                         .lineLimit(1)
-                        .foregroundStyle(ink)
+                        .foregroundStyle(displayedInk)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .padding(.leading, geo.size.width * Self.creamLeading)
                         .padding(.trailing, geo.size.width * Self.creamTrailing)
@@ -2483,31 +2520,39 @@ struct RiverQuestionBanner: View {
             }
             .frame(maxWidth: .infinity, alignment: .top)
             .offset(y: -Self.height(isPad: isPad) * Self.visualTopInset)
-            .onAppear { shownPrompt = prompt }
-            .onChange(of: Question(id: roundID, prompt: prompt)) { _, question in
-                reveal(question.prompt)
+            .onAppear {
+                shownPrompt = content.text
+                shownKind = content.kind
             }
+            .onChange(of: content) { _, newContent in reveal(newContent) }
+            .animation(.spring(response: 0.24, dampingFraction: 0.72), value: shownKind)
             .accessibilityIdentifier("question-card")
-            .accessibilityLabel(Text(L("game.question \(prompt)")))
-            .accessibilityHidden(prompt.isEmpty)
+            .accessibilityLabel(Text(L("game.question \(shownPrompt)")))
+            .accessibilityHidden(shownPrompt.isEmpty)
     }
 
-    private struct Question: Equatable {
+    private struct Content: Equatable {
         let id: UUID?
-        let prompt: String
+        let text: String
+        let kind: RoundAnswerFeedbackKind?
     }
 
-    private func reveal(_ newPrompt: String) {
-        guard shownPrompt != newPrompt else { return }
+    private func reveal(_ newContent: Content) {
+        guard shownPrompt != newContent.text || shownKind != newContent.kind else { return }
+        revealRevision &+= 1
+        let revision = revealRevision
         // The wooden board stays put; only the ink on it is swapped.
-        guard !shownPrompt.isEmpty, !newPrompt.isEmpty else {
-            shownPrompt = newPrompt
+        guard !shownPrompt.isEmpty, !newContent.text.isEmpty else {
+            shownPrompt = newContent.text
+            shownKind = newContent.kind
             isVisible = true
             return
         }
         withAnimation(.easeOut(duration: 0.10)) { isVisible = false }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.11) {
-            shownPrompt = newPrompt
+            guard revision == revealRevision else { return }
+            shownPrompt = newContent.text
+            shownKind = newContent.kind
             withAnimation(.easeOut(duration: 0.20)) { isVisible = true }
         }
     }

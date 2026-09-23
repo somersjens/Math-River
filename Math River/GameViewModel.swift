@@ -35,9 +35,26 @@ struct MissedSum: Equatable {
     fileprivate var shownRoundID: UUID?
 }
 
+enum RoundAnswerFeedbackKind: Equatable {
+    case correct
+    case wrong
+}
+
+/// The equation itself is the feedback: a successful collision fills the
+/// blank, while a rejected collision shows the attempted value behind `≠`.
+/// It is tied to a round so delayed callbacks can never decorate a newer sum.
+struct RoundAnswerFeedback: Equatable {
+    let roundID: UUID
+    let text: String
+    let kind: RoundAnswerFeedbackKind
+}
+
 @MainActor
 final class GameViewModel: ObservableObject {
     private let request: GameSessionRequest
+    /// Frozen once for this view model. A QA launch therefore uses the same
+    /// sequence for the initial run, rewind and Play Again.
+    private let gameplaySeed: UInt64?
     private var engine: MemoryGame
 
     /// `MemoryGame` is built on a worker and then transferred exactly once to
@@ -62,6 +79,7 @@ final class GameViewModel: ObservableObject {
     /// The sum the player just lost, held under the one that replaced it so a
     /// mistake is never silent. Nil whenever there is nothing to own up to.
     @Published private(set) var missedSum: MissedSum?
+    @Published private(set) var answerFeedback: RoundAnswerFeedback?
     /// The same note while the sum it belongs to is still standing: it is not
     /// shown yet, because its answer is the one thing that must not be given
     /// away in the moment between the mistake and the next question.
@@ -96,9 +114,12 @@ final class GameViewModel: ObservableObject {
 
     init(request: GameSessionRequest) {
         self.request = request
+        let seed = GameplayDebug.questionSeed
+        self.gameplaySeed = seed
         self.engine = MemoryGame(level: request.level,
-                            mixedVariant: request.mixedVariant,
-                            mode: request.mode)
+                                 mixedVariant: request.mixedVariant,
+                                 mode: request.mode,
+                                 seed: seed)
     }
 
     // MARK: - Lifecycle
@@ -116,10 +137,12 @@ final class GameViewModel: ObservableObject {
         let level = request.level
         let mixedVariant = request.mixedVariant
         let mode = request.mode
+        let seed = gameplaySeed
         preparationTask = Task.detached(priority: .userInitiated) {
             let prepared = MemoryGame(level: level,
                                       mixedVariant: mixedVariant,
-                                      mode: mode)
+                                      mode: mode,
+                                      seed: seed)
             if let pausedSession {
                 prepared.resume(from: pausedSession)
             } else {
@@ -247,6 +270,31 @@ final class GameViewModel: ObservableObject {
         PausedSessionStore.shared.save(paused)
     }
 
+    /// Throws away a run that has not scored yet so the walkthrough can open
+    /// on round one, the same way a brand-new session does. A scored pause is
+    /// left untouched: the player would be giving a real result away.
+    func rewindUnscoredRun() {
+        guard cards == 0, engine.state != .intro else { return }
+        generation &+= 1
+        preparationTask?.cancel()
+        preparationTask = nil
+        PausedSessionStore.shared.clear(request.board)
+        hasRecordedResult = false
+        isPaused = false
+        pendingScheduledWork = nil
+        pendingScoreRewards.removeAll()
+        hasBonusFishPower = false
+        missedSum = nil
+        pendingMissedSum = nil
+        answerFeedback = nil
+        engine = MemoryGame(level: request.level,
+                            mixedVariant: request.mixedVariant,
+                            mode: request.mode,
+                            seed: gameplaySeed)
+        startPreparation(pausedSession: nil)
+        sync()
+    }
+
     /// Play again always starts a clean run, so any paused record for this
     /// level is spent.
     func restart() async {
@@ -268,6 +316,7 @@ final class GameViewModel: ObservableObject {
         hasBonusFishPower = false
         missedSum = nil
         pendingMissedSum = nil
+        answerFeedback = nil
         AppAudio.shared.playSessionStart()
         openRound()
         announceRound()
@@ -282,14 +331,16 @@ final class GameViewModel: ObservableObject {
     /// tells the arena whether the King's sweep actually scored.
     @discardableResult
     func select(optionID: UUID) -> Bool {
-        resolve(engine.select(optionID: optionID, usesBonusFish: false))
+        let selectedOption = engine.round?.options.first { $0.id == optionID }
+        return resolve(engine.select(optionID: optionID, usesBonusFish: false),
+                       selectedOption: selectedOption)
     }
 
     /// The player smashed the crab carrying the right answer. It costs a whole
     /// life and the attempt starts over on the same sum.
     @discardableResult
     func smashGuardedAnswer() -> Bool {
-        resolve(engine.smashGuardedAnswer())
+        resolve(engine.smashGuardedAnswer(), selectedOption: nil)
     }
 
     /// A wrong answer slipped through to the King: half a life, and the round
@@ -308,7 +359,8 @@ final class GameViewModel: ObservableObject {
         return true
     }
 
-    private func resolve(_ outcome: AnswerOutcome) -> Bool {
+    private func resolve(_ outcome: AnswerOutcome,
+                         selectedOption: AnswerOption?) -> Bool {
         guard outcome != .ignored else { return false }
         // Every real interaction advances the playtime clock. Without these the
         // tracker only ever sees one gap from the first touch to the last,
@@ -320,6 +372,11 @@ final class GameViewModel: ObservableObject {
         let delay: Double
         switch outcome {
         case .correct(let cardsEarned, let usedBonusFish, _):
+            if let round = engine.round {
+                answerFeedback = RoundAnswerFeedback(roundID: round.id,
+                                                     text: round.question.solved,
+                                                     kind: .correct)
+            }
             pendingScoreRewards.append(cardsEarned)
             sync()
             onAnswerResolved?(true, false)
@@ -331,6 +388,21 @@ final class GameViewModel: ObservableObject {
             haptic(.success)
             delay = GameConfig.nextRoundDelay.correct
         case .wrong(_, let lostHalfLife):
+            if let round = engine.round,
+               let selectedOption,
+               !selectedOption.isCorrect {
+                let feedback = RoundAnswerFeedback(
+                    roundID: round.id,
+                    text: round.question.rejected(with: selectedOption.text),
+                    kind: .wrong
+                )
+                answerFeedback = feedback
+                schedule(after: GameConfig.wrongFeedbackDuration,
+                         token: token) { [weak self] in
+                    guard self?.answerFeedback == feedback else { return }
+                    self?.answerFeedback = nil
+                }
+            }
             // A river miss does not close the sum: the right pot is still
             // coming, so the answer must not be written under the next one
             // unless this group actually goes by unanswered.
@@ -559,6 +631,9 @@ final class GameViewModel: ObservableObject {
     private func sync() {
         state = engine.state
         round = engine.round
+        if let feedback = answerFeedback, feedback.roundID != engine.round?.id {
+            answerFeedback = nil
+        }
         roundNumber = engine.roundNumber
         if pendingScoreRewards.isEmpty { cards = engine.cards }
         livesRemaining = engine.livesRemaining

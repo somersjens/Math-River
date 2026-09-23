@@ -72,16 +72,29 @@ enum HoneySlideTuning {
     static let jumpHeight: CGFloat = 0.115
     static let landingRecoveryDuration: Double = 0.52
     static let splitCommitProgress: CGFloat = 0.42
-    static let answerDecisionLeadTime: Double = 3.0
     static var answerLeadDistance: CGFloat {
-        nominalSlideSpeed * CGFloat(answerDecisionLeadTime)
+        nominalSlideSpeed * CGFloat(GameConfig.riverApproachDuration)
     }
+    /// The authored route must offer a safe corridor within this much extra
+    /// travel after the requested reading window. At nominal speed this is at
+    /// most two additional seconds, usually much less.
+    static let maximumAnswerCheckpointDelay: CGFloat = 72
+    /// Staying in the middle must never answer a sum by accident. This is wider
+    /// than the collision slop, leaving room for the small drift of a curve.
+    static let neutralAnswerClearance: CGFloat = 0.34
     static let splashPoolCapacity = 48
 
     static func playableLateralLimit(for width: CGFloat) -> CGFloat {
         let halfWidth = max(0.001, worldTrackHalfWidth * width)
         let footprintLimit = 1 - (playerFootprintRadius + railClearance) / halfWidth
         return min(maximumPlayerLateral, max(0.68, footprintLimit))
+    }
+
+    static func answerLateral(_ proposed: CGFloat, trackWidth: CGFloat) -> CGFloat {
+        let limit = playableLateralLimit(for: trackWidth)
+        let sign: CGFloat = proposed < 0 ? -1 : 1
+        let cleared = sign * max(abs(proposed), min(neutralAnswerClearance, limit))
+        return min(limit, max(-limit, cleared))
     }
 }
 
@@ -276,8 +289,22 @@ struct HoneyTrackSample {
         }
     }
     var isAnswerSafe: Bool {
-        (kind == .answerApproach || kind == .wide)
-            && localProgress > 0.12 && localProgress < 0.88
+        guard hasSurface,
+              railings,
+              width >= 1.0,
+              !locksBranch,
+              localProgress > 0.12,
+              localProgress < 0.88 else { return false }
+        switch kind {
+        case .jump, .narrow, .split, .branch, .merge, .tunnel:
+            return false
+        case .landing:
+            // Let the rider settle after touching down before asking for a
+            // precise lateral choice.
+            return localProgress > 0.35
+        case .straight, .wide, .curve, .sCurve, .descent, .answerApproach:
+            return true
+        }
     }
     var locksBranch: Bool {
         kind == .branch
@@ -341,7 +368,7 @@ struct HoneySlideRoute {
                           cameraLookAhead: 1.18),
         HoneySlideSegment("quiet-answer-run", kind: .answerApproach, length: 96, width: 1.14, endWidth: 1.48,
                           heightDelta: -20, elevationUndulation: 1.6,
-                          answerOffsets: [-0.82, -0.28, 0.28, 0.82]),
+                          answerOffsets: [-0.82, -0.36, 0.36, 0.82]),
         HoneySlideSegment("strong-valley-descent", kind: .descent, length: 84, width: 1.48, endWidth: 1.10,
                           lateralShift: -0.25, heightDelta: -60, troughDepth: 0.15,
                           elevationUndulation: 3.6,
@@ -358,7 +385,7 @@ struct HoneySlideRoute {
                           speedMultiplier: 1.12, cameraLookAhead: 1.18),
         HoneySlideSegment("valley-answer-finish", kind: .answerApproach, length: 100, width: 1.18, endWidth: 1.48,
                           lateralShift: 0, heightDelta: -24, elevationUndulation: 1.8,
-                          answerOffsets: [-0.82, -0.28, 0.28, 0.82])
+                          answerOffsets: [-0.82, -0.36, 0.36, 0.82])
     ])
 
     let segments: [HoneySlideSegment]
@@ -572,8 +599,11 @@ struct HoneySlideRoute {
                             z: rawDistance)
     }
 
-    func nextSafeAnswerDistance(after rawDistance: CGFloat) -> CGFloat {
-        let start = rawDistance + HoneySlideTuning.answerLeadDistance
+    func nextSafeAnswerDistance(
+        after rawDistance: CGFloat,
+        minimumLeadDistance: CGFloat = HoneySlideTuning.answerLeadDistance
+    ) -> CGFloat {
+        let start = rawDistance + max(0, minimumLeadDistance)
         var distance = start
         let limit = start + totalLength
         while distance < limit {
@@ -593,6 +623,29 @@ struct HoneySlideRoute {
         let index = segmentIndex(at: distance)
         let boundary = starts[index] + segments[index].length
         return max(0, boundary - distance)
+    }
+
+    /// Absolute segment boundaries inside a visible world-distance interval.
+    /// Renderers use these to pin topology changes to their authored position
+    /// instead of letting a coarse moving sample hop across a jump or seam.
+    func segmentBoundaries(from lowerBound: CGFloat,
+                           through upperBound: CGFloat) -> [CGFloat] {
+        guard lowerBound.isFinite, upperBound.isFinite else { return [] }
+        let lower = min(lowerBound, upperBound)
+        let upper = max(lowerBound, upperBound)
+        let firstLap = Int(floor(lower / totalLength)) - 1
+        let lastLap = Int(ceil(upper / totalLength)) + 1
+        var result: [CGFloat] = []
+        for lap in firstLap...lastLap {
+            let lapStart = CGFloat(lap) * totalLength
+            for start in starts {
+                let boundary = lapStart + start
+                if boundary > lower, boundary < upper {
+                    result.append(boundary)
+                }
+            }
+        }
+        return result.sorted()
     }
 
     private func segmentIndex(at distance: CGFloat) -> Int {

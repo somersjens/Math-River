@@ -95,8 +95,8 @@ struct GameView: View {
     /// Whether pressing Start will run the walkthrough. Armed from the menu for
     /// a brand-new player, and toggled by the cap button on the start card.
     @State private var isTutorialArmed: Bool
-    /// The "only at the start of a game" note, raised by the cap button on a
-    /// run that is already under way.
+    /// Raised by the cap button once points have been earned, because a scored
+    /// run cannot be rewound into a lesson.
     @State private var showsTutorialNotice = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -230,7 +230,13 @@ struct GameView: View {
 
     private func startSession() {
         showsIntro = false
-        if showsPauseCard, model.state != .intro {
+        if isTutorialArmed, model.state != .intro {
+            // A zero-point pause is not progress: rewind it so the lesson can
+            // shape the arena from the first round, then walk on as usual.
+            model.rewindUnscoredRun()
+            showsPauseCard = false
+            playsKingEntrance = true
+        } else if showsPauseCard, model.state != .intro {
             showsPauseCard = false
             model.resume()
         } else {
@@ -255,13 +261,15 @@ struct GameView: View {
         }
     }
 
-    /// The cap on the start card. A run that is already under way cannot be
-    /// rewound into a lesson, so there the button explains itself instead.
+    /// The cap on the start card. The lesson may still be added until the first
+    /// point has been earned; after that the button explains itself instead.
     private func toggleTutorial() {
         AppAudio.shared.playMenuTap()
-        guard model.state == .intro,
-              PausedSessionStore.shared.session(request.board) == nil,
-              !showsPauseCard else {
+        let savedPoints = PausedSessionStore.shared.session(request.board)?.cards ?? 0
+        guard !tutorial.isActive,
+              !model.isGameOver,
+              model.cards == 0,
+              savedPoints == 0 else {
             withAnimation(.spring(response: 0.34, dampingFraction: 0.84)) {
                 showsTutorialNotice = true
             }
@@ -376,6 +384,7 @@ struct GameView: View {
             ZStack(alignment: .top) {
                 RiverQuestionBanner(prompt: model.round?.question.prompt ?? "",
                                     roundID: model.round?.id,
+                                    feedback: model.answerFeedback,
                                     ink: character.deepColor,
                                     isPad: isPad)
                     .allowsHitTesting(false)
@@ -423,27 +432,39 @@ struct GameView: View {
 
     /// Same disc as the pause button, with the score as a digit on it.
     private var progressCounter: some View {
-        Text(verbatim: LN(model.cards))
-            .font(.system(size: isPad ? 22 : 16, weight: .heavy, design: .rounded))
+        HStack(spacing: isPad ? 6 : 4) {
+            CurrencyIcon(size: isPad ? 19 : 14)
+                .foregroundStyle(.white)
+                .background {
+                    GeometryReader { proxy in
+                        Color.clear.preference(
+                            key: ScoreIconCenterPreferenceKey.self,
+                            value: CGPoint(x: proxy.frame(in: .global).midX,
+                                           y: proxy.frame(in: .global).midY)
+                        )
+                    }
+                }
+
+            HStack(alignment: .firstTextBaseline, spacing: 2) {
+                Text(verbatim: LN(model.cards))
+                    .modifier(NumericCountTransition(value: Double(model.cards)))
+                Text(verbatim: "/\(LN(model.maximumRounds))")
+                    .opacity(0.72)
+            }
+            .font(.system(size: isPad ? 18 : 14, weight: .heavy, design: .rounded))
             .monospacedDigit()
             .lineLimit(1)
-            .minimumScaleFactor(0.5)
-            .modifier(NumericCountTransition(value: Double(model.cards)))
-            .foregroundStyle(.white)
-            .frame(width: hudControlSize, height: hudControlSize)
-            .background(Circle().fill(character.deepColor))
-            .background {
-                GeometryReader { proxy in
-                    Color.clear.preference(
-                        key: ScoreIconCenterPreferenceKey.self,
-                        value: CGPoint(x: proxy.frame(in: .global).midX,
-                                       y: proxy.frame(in: .global).midY)
-                    )
-                }
-            }
-            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: model.cards)
-            .accessibilityIdentifier("progress")
-            .accessibilityLabel(Text(L("game.bubblesCollected \(model.cards)")))
+            .minimumScaleFactor(0.65)
+        }
+        .foregroundStyle(.white)
+        .frame(height: hudControlSize)
+        .padding(.horizontal, isPad ? 12 : 9)
+        .background(Capsule().fill(character.deepColor))
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: model.cards)
+        .accessibilityElement(children: .ignore)
+        .accessibilityIdentifier("progress")
+        .accessibilityLabel(Text(L("game.bubblesCollected \(model.cards)")))
+        .accessibilityValue(Text(verbatim: "\(LN(model.cards)) / \(LN(model.maximumRounds))"))
     }
 
     /// The arena only ticks while the level is actually being played: never

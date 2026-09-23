@@ -40,8 +40,27 @@ nonisolated public struct MathQuestion: Equatable, Codable, Sendable {
     /// which ask for a numerator in the middle of the line — so this holds for
     /// every kind of question the generator makes.
     public var solved: String {
+        filled(with: correctAnswer)
+    }
+
+    /// Writes any attempted answer into the blank. Keeping this transformation
+    /// beside the question model makes every gameplay surface render fractions,
+    /// percentages and decimal answers in exactly the same way.
+    public func filled(with answer: String) -> String {
         guard let blank = prompt.range(of: "?") else { return prompt }
-        return prompt.replacingCharacters(in: blank, with: correctAnswer)
+        return prompt.replacingCharacters(in: blank, with: answer)
+    }
+
+    /// A mathematically honest version of a rejected attempt. The selected
+    /// value is written into the sum, but the equality sign becomes `≠`; a
+    /// child can therefore see what was tried without the game revealing the
+    /// correct pot that is still approaching.
+    public func rejected(with answer: String) -> String {
+        let attempted = filled(with: answer)
+        guard let equality = attempted.range(of: "=", options: .backwards) else {
+            return attempted
+        }
+        return attempted.replacingCharacters(in: equality, with: "≠")
     }
 
     /// A question is only ever shown when this holds: a non-empty prompt, a
