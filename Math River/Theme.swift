@@ -3,32 +3,63 @@
 //  Elephant Challenge: Math Memory
 //
 //  Character catalog: 10 animals, each with a clearly different colour and a
-//  matching visual theme for the whole app. Characters are earned by collecting
-//  cards; the requirements live in `GameConfig.characterUnlockRequirements`.
+//  matching visual theme for the whole app. Characters are earned with honey;
+//  the requirements live in `GameConfig.characterUnlockRequirements`.
 //
 
 import SwiftUI
 
-/// The game's currency. A player collects shells: on the sea floor, on the menu
-/// totals, on the level cards and in the shop. One glyph, used everywhere, so
-/// the same thing is never drawn two ways.
+/// The game's persistent currency. It is deliberately distinct from mastery:
+/// honey can always be earned again, while the checkmark score is a best result.
 enum Currency {
     /// Identifies the currency glyph where a view has to tell it apart from an
     /// SF Symbol. It is drawn by `CurrencyIcon`, not loaded from the catalog.
-    static let icon = "shell"
+    static let icon = "honey"
 }
 
-/// The glyph used anywhere a shell count is shown. It is drawn rather than
-/// loaded, so it stays crisp from the 9-point level card up to the flying
-/// reward, and it takes the surrounding foreground style exactly as the old
-/// template image did.
+/// The glyph used anywhere a honey total is shown.
 struct CurrencyIcon: View {
     let size: CGFloat
 
     var body: some View {
-        ShellShape()
-            .fill(.foreground, style: FillStyle(eoFill: true))
+        HoneyDropShape()
+            .fill(.foreground)
             .frame(width: size, height: size)
+    }
+}
+
+/// Best-score/mastery glyph. Keeping it separate from `CurrencyIcon` is the
+/// visual half of phase 3: a record can no longer look like spendable honey.
+struct MasteryIcon: View {
+    let size: CGFloat
+
+    var body: some View {
+        Image(systemName: "checkmark.seal.fill")
+            .font(.system(size: size, weight: .bold))
+            .frame(width: size, height: size)
+    }
+}
+
+struct HoneyDropShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        let w = rect.width
+        let h = rect.height
+        var path = Path()
+        path.move(to: CGPoint(x: rect.midX, y: rect.minY))
+        path.addCurve(to: CGPoint(x: rect.minX + w * 0.92, y: rect.minY + h * 0.62),
+                      control1: CGPoint(x: rect.minX + w * 0.58, y: rect.minY + h * 0.16),
+                      control2: CGPoint(x: rect.minX + w * 0.92, y: rect.minY + h * 0.40))
+        path.addCurve(to: CGPoint(x: rect.midX, y: rect.maxY),
+                      control1: CGPoint(x: rect.minX + w * 0.92, y: rect.minY + h * 0.86),
+                      control2: CGPoint(x: rect.minX + w * 0.70, y: rect.maxY))
+        path.addCurve(to: CGPoint(x: rect.minX + w * 0.08, y: rect.minY + h * 0.62),
+                      control1: CGPoint(x: rect.minX + w * 0.30, y: rect.maxY),
+                      control2: CGPoint(x: rect.minX + w * 0.08, y: rect.minY + h * 0.86))
+        path.addCurve(to: CGPoint(x: rect.midX, y: rect.minY),
+                      control1: CGPoint(x: rect.minX + w * 0.08, y: rect.minY + h * 0.40),
+                      control2: CGPoint(x: rect.minX + w * 0.42, y: rect.minY + h * 0.16))
+        path.closeSubpath()
+        return path
     }
 }
 

@@ -48,36 +48,43 @@ struct OnboardingView: View {
             onboardingBackground
 
             GeometryReader { proxy in
+                let usesLandscapeLayout = AppLayout.isLandscape(proxy.size)
                 ScrollView {
-                    VStack(spacing: 0) {
-                        let portrait: CGFloat = isPad
-                            ? (step == 1 ? 160 : 210)
-                            : (step == 1 ? 112 : 150)
-                        welcomeCharacter.artwork
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: portrait, height: portrait)
-                            .padding(.bottom, isPad ? (step == 1 ? 20 : 30) : (step == 1 ? 14 : 22))
-                            .animation(.spring(response: 0.42, dampingFraction: 0.82), value: step)
-
-                        Group {
-                            let availableWidth = min(
+                    Group {
+                        if usesLandscapeLayout {
+                            let portrait: CGFloat = isPad
+                                ? (step == 1 ? 190 : 230)
+                                : (step == 1 ? 118 : 145)
+                            let panelWidth = min(
                                 contentWidth,
-                                max(0, proxy.size.width - (isPad ? 72 : 48))
+                                max(0, proxy.size.width - portrait - (isPad ? 150 : 100))
                             )
-                            switch step {
-                            case 0: nameStep
-                            case 1:
-                                subjectStep(usesTwoColumns: isPad && proxy.size.width > proxy.size.height)
-                            default: practiceModeStep(availableWidth: availableWidth)
+                            HStack(spacing: isPad ? 54 : 34) {
+                                welcomeArtwork(size: portrait)
+                                stepPanel(availableWidth: panelWidth, usesTwoColumns: true)
+                                    .frame(maxWidth: panelWidth)
+                            }
+                            .padding(.horizontal, isPad ? 72 : 48)
+                            .padding(.vertical, isPad ? 28 : 18)
+                        } else {
+                            let portrait: CGFloat = isPad
+                                ? (step == 1 ? 160 : 210)
+                                : (step == 1 ? 112 : 150)
+                            VStack(spacing: 0) {
+                                welcomeArtwork(size: portrait)
+                                    .padding(.bottom, isPad
+                                             ? (step == 1 ? 20 : 30)
+                                             : (step == 1 ? 14 : 22))
+                                let availableWidth = min(
+                                    contentWidth,
+                                    max(0, proxy.size.width - (isPad ? 72 : 48))
+                                )
+                                stepPanel(availableWidth: availableWidth,
+                                          usesTwoColumns: isPad && proxy.size.width > proxy.size.height)
+                                    .padding(.horizontal, isPad ? 36 : 24)
                             }
                         }
-                        .id(step)
-                        .transition(.opacity.combined(with: .move(edge: .trailing)))
-                        .frame(maxWidth: contentWidth)
-                        .padding(.horizontal, isPad ? 36 : 24)
                     }
-                    .padding(.vertical, isPad ? 40 : 28)
                     // On normal-height screens this fills the viewport and
                     // centres the welcome content. On smaller screens the
                     // content simply grows taller and remains scrollable.
@@ -103,6 +110,28 @@ struct OnboardingView: View {
                 .padding(.top, isPad ? 20 : 8)
                 .padding(.trailing, isPad ? 28 : 16)
         }
+    }
+
+    private func welcomeArtwork(size: CGFloat) -> some View {
+        welcomeCharacter.artwork
+            .resizable()
+            .scaledToFit()
+            .frame(width: size, height: size)
+            .animation(.spring(response: 0.42, dampingFraction: 0.82), value: step)
+    }
+
+    @ViewBuilder
+    private func stepPanel(availableWidth: CGFloat, usesTwoColumns: Bool) -> some View {
+        Group {
+            switch step {
+            case 0: nameStep
+            case 1: subjectStep(usesTwoColumns: usesTwoColumns)
+            default: practiceModeStep(availableWidth: availableWidth)
+            }
+        }
+        .id(step)
+        .transition(.opacity.combined(with: .move(edge: .trailing)))
+        .frame(maxWidth: contentWidth)
     }
 
     private var backButton: some View {

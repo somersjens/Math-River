@@ -69,7 +69,16 @@ nonisolated public enum BreachOutcome: Equatable, Sendable {
 nonisolated public struct SessionResult: Equatable, Sendable {
     public var correctAnswers = 0
     public var wrongAnswers = 0
+    /// Session score. Kept under its old name for save/view compatibility.
     public var cardsEarned = 0
+    /// Persistent currency awarded when this attempt is actually finished.
+    public var honeyEarned = 0
+    /// Honey earned beyond the one-per-correct-answer base reward.
+    public var honeyFlowBonusHoney = 0
+    public var routeBonusHoney = 0
+    public var honeyFlowActivations = 0
+    /// Best 0...12 mastery result after this attempt was recorded.
+    public var personalBest = 0
     /// Cards awarded over and above the normal one-bubble reward.
     public var bonusCards = 0
     /// Kept under its persisted name for save compatibility; now counts caught
@@ -153,13 +162,20 @@ nonisolated public final class MemoryGame {
         Double(lifeHalves) / Double(GameConfig.lifeGranularity)
     }
 
-    /// Rounds this board can run to. Every round pays at least one bubble, so
-    /// the target is always reachable inside this many.
+    /// Every board runs for the same twelve questions.
     public var maximumRounds: Int { board.maximum }
 
     /// Whether a tap on an answer card can be accepted right now.
     public var acceptsInput: Bool { state == .answering }
-    /// In-round streak boost was removed: every correct answer pays the same.
+    /// Filled cells in the three-part Honey Flow meter. The third correct
+    /// answer stays visibly full until the next answer starts a new cycle.
+    public var honeyFlowProgress: Int {
+        guard correctStreak > 0 else { return 0 }
+        let remainder = correctStreak % GameConfig.honeyFlowThreshold
+        return remainder == 0 ? GameConfig.honeyFlowThreshold : remainder
+    }
+    /// Compatibility name. Honey Flow is visual/reward-only and never changes
+    /// the answer speed.
     public var isStreakBoostActive: Bool { false }
 
     /// Whether the answer values are readable. They are during the memorising
@@ -243,6 +259,9 @@ nonisolated public final class MemoryGame {
         result.wrongAnswers = session.wrongAnswers
         result.doubleCardsAnswered = session.doubleCardsAnswered
         result.bonusCards = session.bonusCards
+        result.honeyFlowActivations = session.honeyFlowActivations ?? 0
+        result.honeyFlowBonusHoney = session.honeyFlowBonusHoney ?? 0
+        result.routeBonusHoney = session.routeBonusHoney ?? 0
         result.cardsEarned = session.cards
         correctStreak = session.correctStreak ?? 0
         lifeCrabProgress = session.heartFishProgress ?? 0
@@ -273,6 +292,9 @@ nonisolated public final class MemoryGame {
                              // Legacy field: the helper it counted is gone.
                              flamethrowersUsed: 0,
                              correctStreak: correctStreak,
+                             honeyFlowActivations: result.honeyFlowActivations,
+                             honeyFlowBonusHoney: result.honeyFlowBonusHoney,
+                             routeBonusHoney: result.routeBonusHoney,
                              hasBonusFishPower: hasBonusFishPower,
                              // Legacy field names: they now carry the life
                              // crab's meter, so old saves stay decodable.
@@ -329,17 +351,22 @@ nonisolated public final class MemoryGame {
             result.correctAnswers += 1
             result.cardsEarned += earned
             correctStreak += 1
+            let activatedHoneyFlow = correctStreak % GameConfig.honeyFlowThreshold == 0
+            if activatedHoneyFlow {
+                result.honeyFlowActivations += 1
+                result.honeyFlowBonusHoney += GameConfig.honeyFlowBonusHoney
+            }
             advanceLifeCrabProgressIfNeeded()
             let outcome = AnswerOutcome.correct(cardsEarned: earned,
                                                 usedBonusFish: false,
-                                                startedStreak: false)
+                                                startedStreak: activatedHoneyFlow)
             lastOutcome = outcome
             return outcome
         }
 
         result.wrongAnswers += 1
         correctStreak = 0
-        if appliesWrongAnswerPenalty {
+        if appliesWrongAnswerPenalty, GameConfig.riverWrongAnswerPenalty > 0 {
             let penalty = GameConfig.riverWrongAnswerPenalty
             cards = max(0, cards - penalty)
             result.cardsEarned = cards
@@ -355,10 +382,20 @@ nonisolated public final class MemoryGame {
     @discardableResult
     public func skipUnanswered() -> Bool {
         guard state == .answering else { return false }
+        correctStreak = 0
         repeatsRound = false
         selectedOptionID = nil
         lastOutcome = nil
         state = .roundComplete
+        return true
+    }
+
+    /// A deliberate branch can carry a small optional honey pickup. It is
+    /// session reward only: it never changes score, mastery or question count.
+    @discardableResult
+    public func collectRouteHoney(_ amount: Int = 1) -> Bool {
+        guard state != .intro, state != .gameOver, amount > 0 else { return false }
+        result.routeBonusHoney += amount
         return true
     }
 
@@ -577,9 +614,13 @@ nonisolated public final class MemoryGame {
     /// of storage concerns.
     public func applyProgressOutcome(previousBest: Int,
                                      isNewPersonalBest: Bool,
-                                     unlockedCharacterIDs: [String]) {
+                                     unlockedCharacterIDs: [String],
+                                     personalBest: Int,
+                                     honeyEarned: Int) {
         result.previousPersonalBest = previousBest
         result.isNewPersonalBest = isNewPersonalBest
         result.unlockedCharacterIDs = unlockedCharacterIDs
+        result.personalBest = personalBest
+        result.honeyEarned = max(0, honeyEarned)
     }
 }

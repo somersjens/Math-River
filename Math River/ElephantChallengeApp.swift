@@ -9,15 +9,14 @@ import UIKit
 #endif
 
 #if canImport(UIKit)
-/// Keep the compact iPhone experience in portrait, while allowing iPad to use
-/// the orientation of the device. iPad players commonly use a keyboard case or
-/// Stage Manager, so forcing portrait there makes an otherwise adaptive
-/// SwiftUI layout feel like an enlarged phone app.
+/// Honey Slide is composed as a landscape game on both iPhone and iPad. Keep
+/// the mask here in sync with the generated Info.plist settings so a launch,
+/// cover presentation or returning sheet can never briefly rotate to portrait.
 final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication,
                      supportedInterfaceOrientationsFor window: UIWindow?)
     -> UIInterfaceOrientationMask {
-        UIDevice.current.userInterfaceIdiom == .pad ? .all : .portrait
+        .landscape
     }
 }
 #endif
@@ -59,7 +58,9 @@ struct ElephantChallengeApp: App {
         WindowGroup {
             ZStack {
 #if DEBUG
-                if HoneySlidePreviewMode.isActive {
+                if Phase3ResultPreviewMode.isActive {
+                    Phase3ResultPreview()
+                } else if HoneySlidePreviewMode.isActive {
                     HoneySlideDebugPreview()
                 } else if PromoMode.isActive {
                     PromoTrailerRoot()
@@ -121,8 +122,9 @@ struct ElephantChallengeApp: App {
     }
 }
 
-/// Shared layout helper, used to give iPad more breathing room without
-/// changing the visual hierarchy.
+/// Shared layout helpers. Device family still controls the artwork scale, while
+/// actual window geometry controls composition (important for iPad windows and
+/// SwiftUI previews).
 enum AppLayout {
 #if DEBUG
     /// Trailer captures force phone or pad layout independently of the
@@ -139,5 +141,9 @@ enum AppLayout {
 #else
         return false
 #endif
+    }
+
+    static func isLandscape(_ size: CGSize) -> Bool {
+        size.width > size.height
     }
 }

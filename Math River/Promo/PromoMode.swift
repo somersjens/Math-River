@@ -120,7 +120,7 @@ enum PromoScript {
 
     static let headlineThrow = "Throw sand at the wrong answers"
     static let headlineUnlock = "Unlock special crabs"
-    static let headlineShells = "Pick up as many shells as you can"
+    static let headlineShells = "Pick up as much honey as you can"
 
     static var rounds: [GameRound] {
         [

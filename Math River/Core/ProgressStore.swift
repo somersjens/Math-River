@@ -45,7 +45,7 @@ public final class InMemoryKeyValueStore: KeyValueStore {
 
 // MARK: - Boards
 
-/// One scoreboard. A level does not have a single best: practising it in Order,
+/// One mastery board. A level does not have a single best: practising it in Order,
 /// Random or Mixed are separate exercises, and on Supermix each combination of
 /// operations is separate again. Every one of those keeps its own best and its
 /// own "reached the maximum" tally. Targets depend on the chosen exercise;
@@ -75,14 +75,17 @@ nonisolated public struct LevelBoard: Hashable, Sendable {
             : "\(level.id)\(mode.idSuffix)"
     }
 
-    /// What a full score is worth on this board.
-    public var maximum: Int {
-        if level.topic.usesSupermixGrid { return GameConfig.supermixLevelMaximum }
+    /// Every exercise is measured on the same twelve-question mastery scale.
+    public var maximum: Int { GameConfig.sessionQuestionCount }
 
+    /// The target this board used before phase 3. Only storage migration reads
+    /// it; keeping it beside the board definition prevents mode mapping drift.
+    var legacyMaximum: Int {
+        if level.topic.usesSupermixGrid { return GameConfig.legacySupermixLevelMaximum }
         switch mode {
-        case .order:  return GameConfig.orderLevelMaximum
-        case .random: return GameConfig.randomLevelMaximum
-        case .mixed:  return GameConfig.mixedLevelMaximum
+        case .order:  return GameConfig.legacyOrderLevelMaximum
+        case .random: return GameConfig.legacyRandomLevelMaximum
+        case .mixed:  return GameConfig.legacyMixedLevelMaximum
         }
     }
 
@@ -124,6 +127,11 @@ public final class ProgressStore {
 
         /// Bests are kept per board — see `LevelBoard`.
         public static func best(_ board: LevelBoard) -> String { "best.\(board.storageID)" }
+
+        /// Phase-3 mastery deliberately has a new namespace. Old 20/30/40/50
+        /// point records can then be translated once without a late iCloud copy
+        /// being mistaken for a perfect twelve-question run.
+        public static func mastery(_ board: LevelBoard) -> String { "mastery.\(board.storageID)" }
 
         /// How often that board has been taken all the way to its maximum.
         public static func maxCompletions(_ board: LevelBoard) -> String {
@@ -218,6 +226,9 @@ public final class ProgressStore {
         if stored < 4 {
             migrateToFixedAnswerCount(from: stored)
         }
+        if stored < 5 {
+            migrateToFixedSessionLength()
+        }
 
         // Migration writes straight to `defaults`, so anything read before it
         // ran describes the old layout.
@@ -252,7 +263,7 @@ public final class ProgressStore {
                     if legacy > 0 {
                         let board = LevelBoard(level: level,
                                                mixedVariant: MixedVariant.allCases[0])
-                        raise(key: Key.best(board), to: legacy, ceiling: board.maximum)
+                        raise(key: Key.best(board), to: legacy, ceiling: board.legacyMaximum)
                     }
                 }
 
@@ -260,7 +271,7 @@ public final class ProgressStore {
                     fold(intoKey: Key.best(board),
                          from: board.storageID,
                          prefix: "best.",
-                         ceiling: board.maximum)
+                         ceiling: board.legacyMaximum)
                     fold(intoKey: Key.maxCompletions(board),
                          from: board.storageID,
                          prefix: "max-completions.",
@@ -274,6 +285,28 @@ public final class ProgressStore {
         // bubbles. There is nothing coherent to resume, so the records go.
         defaults.removeObject(forKey: PausedSessionStore.key)
         defaults.removeObject(forKey: Key.legacySelectedCardCount)
+    }
+
+    /// Converts the former mode-dependent scoreboards to a comparable 0...12
+    /// mastery result. Rounding preserves the share the player achieved: 15/20
+    /// and 30/40 both become 9/12. The legacy key stays untouched so an older
+    /// app version can still read it; all new writes use `mastery.*`.
+    private func migrateToFixedSessionLength() {
+        for topic in MathTopic.allCases {
+            for index in 1...GameConfig.maximumLevel {
+                let level = MathLevel(topic: topic, index: index)
+                for board in LevelBoard.all(for: level) {
+                    let legacy = max(0, defaults.integer(forKey: Key.best(board)))
+                    guard legacy > 0 else { continue }
+                    let scaled = Int((Double(legacy) / Double(board.legacyMaximum)
+                        * Double(board.maximum)).rounded())
+                    raise(key: Key.mastery(board), to: scaled, ceiling: board.maximum)
+                }
+            }
+        }
+        // A paused 20/30/40/50-question run has no coherent remaining length
+        // on the new twelve-question board, so it restarts cleanly.
+        defaults.removeObject(forKey: PausedSessionStore.key)
     }
 
     /// Merges the three per-card-count keys of one board into its single new
@@ -355,22 +388,33 @@ public final class ProgressStore {
         return order[rawValue]
     }
 
-    // MARK: - Cards
+    // MARK: - Honey
 
-    /// Total cards ever earned. Never negative, never decreases.
-    public var totalCards: Int {
+    /// Lifetime honey. Its persisted key keeps the old `totalCards` spelling so
+    /// existing installs and iCloud retain every previously earned reward.
+    public var totalHoney: Int {
         get { max(0, defaults.integer(forKey: Key.totalCards)) }
         set { defaults.set(max(0, newValue), forKey: Key.totalCards) }
     }
 
-    /// Adds the cards earned in a session and returns the new total.
+    /// Adds honey earned in a completed attempt, including replayed levels.
     @discardableResult
-    public func addCards(_ amount: Int) -> Int {
-        guard amount > 0 else { return totalCards }
-        let updated = totalCards + amount
-        totalCards = updated
+    public func addHoney(_ amount: Int) -> Int {
+        guard amount > 0 else { return totalHoney }
+        let updated = totalHoney + amount
+        totalHoney = updated
         return updated
     }
+
+    /// Source-compatible aliases while the remaining menu terminology is
+    /// cleaned up in the later technical phase.
+    public var totalCards: Int {
+        get { totalHoney }
+        set { totalHoney = newValue }
+    }
+
+    @discardableResult
+    public func addCards(_ amount: Int) -> Int { addHoney(amount) }
 
     // MARK: - Personal bests
 
@@ -380,7 +424,7 @@ public final class ProgressStore {
         // Existing saves may contain scores earned before this board received
         // its shorter target. Keep them for syncing, but never present more
         // bubbles than the board can now hold.
-        let score = min(mergedValue(forKey: Key.best(board)), board.maximum)
+        let score = min(mergedValue(forKey: Key.mastery(board)), board.maximum)
         bestCache[id] = score
         return score
     }
@@ -406,7 +450,7 @@ public final class ProgressStore {
         let capped = min(score, board.maximum)
         let previous = bestScore(board)
         guard capped > previous else { return (false, previous) }
-        let key = Key.best(board)
+        let key = Key.mastery(board)
         defaults.set(capped, forKey: key)
         bestCache[board.storageID] = capped
         levelTotalCache[board.level] = nil

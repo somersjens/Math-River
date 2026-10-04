@@ -23,6 +23,7 @@ struct MathRiverPlayfield: View {
     let playsEntrance: Bool
     let playsLevelCompletion: Bool
     let reduceMotion: Bool
+    let honeyFlowActive: Bool
     var tutorialPlan = CrabTutorialPlan()
     var reservesTutorialMessage = false
     let topReserve: CGFloat
@@ -30,6 +31,8 @@ struct MathRiverPlayfield: View {
     let scoreTarget: CGPoint?
     let onAnswer: (UUID) -> Bool
     let onRewardArrived: () -> Void
+    let onBranchHoney: () -> Void
+    let onLanding: () -> Void
     let onEntranceComplete: () -> Void
     var onLevelCompletionStarted: () -> Void = {}
     let onLevelCompletionFinished: () -> Void
@@ -45,11 +48,14 @@ struct MathRiverPlayfield: View {
                                              phase: arena.scroll,
                                              speed: arena.currentSlideSpeed,
                                              focusLateral: arena.cameraLateral)
+            let chapter = HoneyRunChapter.chapter(roundNumber: round?.number ?? 1,
+                                                  maximumRounds: maximumRounds)
 
             ZStack(alignment: .topLeading) {
                 RiverWorld(character: character,
                            arena: arena,
                            projection: projection,
+                           chapter: chapter,
                            isPad: isPad)
             }
             .frame(width: size.width, height: size.height)
@@ -63,6 +69,7 @@ struct MathRiverPlayfield: View {
                 arena.layout(size: size, isPad: isPad)
                 arena.setReduceMotion(reduceMotion)
                 arena.setScoreTarget(scoreTarget)
+                arena.setHoneyFlowActive(honeyFlowActive)
                 arena.configureSession(maximumRounds: maximumRounds)
                 arena.setLive(isLive)
                 arena.load(round: round)
@@ -92,6 +99,9 @@ struct MathRiverPlayfield: View {
         .onChange(of: scoreTarget) { _, target in
             arena.setScoreTarget(target)
         }
+        .onChange(of: honeyFlowActive) { _, active in
+            arena.setHoneyFlowActive(active)
+        }
         .onChange(of: playsEntrance) { _, shouldPlay in
             if shouldPlay { arena.beginEntrance(completion: onEntranceComplete) }
         }
@@ -111,6 +121,8 @@ struct MathRiverPlayfield: View {
     private func bindArena() {
         arena.onAnswer = onAnswer
         arena.onRewardArrived = onRewardArrived
+        arena.onBranchHoney = onBranchHoney
+        arena.onLanding = onLanding
         arena.onWaveComplete = onWaveComplete
         arena.onTutorialEvent = onTutorialEvent
     }
@@ -131,27 +143,34 @@ private struct RiverWorld: View {
     let character: AnimalCharacter
     @ObservedObject var arena: MathRiverArena
     let projection: RiverProjection
+    let chapter: HoneyRunChapter
     let isPad: Bool
 
     var body: some View {
         ZStack {
-            HoneyWorldBackdrop(projection: projection)
+            HoneyWorldBackdrop(projection: projection, chapter: chapter)
             water
+            answerZoneGlow
             ForEach(arena.pots) { pot in
-                RiverAnswerStoneView(pot: pot,
-                                     projection: projection,
-                                     isPad: isPad,
-                                     clock: arena.clock,
-                                     groupDismissal: arena.reelLift)
+                RiverHoneycombAnswerView(pot: pot,
+                                         projection: projection,
+                                         isPad: isPad,
+                                         clock: arena.clock,
+                                         groupDismissal: arena.reelLift)
                     .zIndex(pot.travel > 0.08 ? Double(4 - pot.travel) : Double(16 - pot.travel))
             }
             playerContactUnderlay
+            honeyFlowTrail
             boatLayer
             playerContactLip
             splashes
                 .zIndex(31)
             rewards
                 .zIndex(32)
+            if projection.sample(for: 0).kind == .tunnel {
+                tunnelRestOverlay
+                    .zIndex(40)
+            }
 #if DEBUG
             if HoneySlideDebugState.enabled {
                 HoneySlidePerformanceOverlay(text: arena.debugPerformanceText)
@@ -167,6 +186,31 @@ private struct RiverWorld: View {
 #endif
         }
         .clipped()
+    }
+
+    /// A quiet band arrives before the answer objects do. It previews where
+    /// the broad decision zone will be without hinting which answer is right.
+    @ViewBuilder
+    private var answerZoneGlow: some View {
+        let visiblePots = arena.pots.filter { !$0.hit && $0.travel > 0.16 && $0.travel < 1.08 }
+        if !visiblePots.isEmpty {
+            let travel = visiblePots.map(\.travel).reduce(0, +) / CGFloat(visiblePots.count)
+            let left = projection.point(lateral: -0.92, travel: travel)
+            let right = projection.point(lateral: 0.92, travel: travel)
+            let center = CGPoint(x: (left.x + right.x) / 2,
+                                 y: (left.y + right.y) / 2)
+            let ahead = projection.point(lateral: 0, travel: travel + 0.04)
+            let angle = atan2(ahead.y - center.y, ahead.x - center.x) - .pi / 2
+            let width = max(50, hypot(right.x - left.x, right.y - left.y))
+
+            HoneyAnswerZoneGlow(clock: arena.clock)
+                .frame(width: width, height: max(12, width * 0.12))
+                .rotationEffect(.radians(Double(angle)))
+                .position(center)
+                .opacity(min(1, Double((travel - 0.16) / 0.28)))
+                .zIndex(Double(2.5 - travel))
+                .allowsHitTesting(false)
+        }
     }
 
     private var water: some View {
@@ -191,6 +235,44 @@ private struct RiverWorld: View {
 
     private var playerSize: CGFloat {
         RiverConfig.boatSize(isPad: isPad) * 1.13
+    }
+
+    private var honeyFlowTrail: some View {
+        let surface = projection.playerSurface(lateral: arena.displayLateral)
+        let size = playerSize
+        return ZStack {
+            ForEach(0..<7, id: \.self) { index in
+                let phase = arena.clock * 4.8 + Double(index) * 0.9
+                Circle()
+                    .fill(index.isMultiple(of: 2) ? Color.yellow : Color.white)
+                    .frame(width: size * (0.055 + CGFloat(index % 3) * 0.012),
+                           height: size * (0.055 + CGFloat(index % 3) * 0.012))
+                    .shadow(color: .yellow.opacity(0.9), radius: 7)
+                    .offset(x: CGFloat(sin(phase)) * size * 0.24,
+                            y: size * (0.20 + CGFloat(index) * 0.095))
+                    .opacity(0.92 - Double(index) * 0.10)
+            }
+        }
+        .position(surface.contactPoint)
+        .opacity(arena.honeyFlowActive ? 1 : 0)
+        .animation(.easeOut(duration: 0.22), value: arena.honeyFlowActive)
+        .allowsHitTesting(false)
+        .zIndex(8)
+    }
+
+    private var tunnelRestOverlay: some View {
+        RadialGradient(colors: [.clear, Color.black.opacity(0.48)],
+                       center: .center, startRadius: 35, endRadius: projection.size.width * 0.72)
+            .overlay(alignment: .top) {
+                Text(verbatim: L(key: "Breathe — next question ahead"))
+                    .font(.system(size: isPad ? 18 : 13, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.9))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
+                    .background(.black.opacity(0.32), in: Capsule())
+                    .padding(.top, projection.size.height * 0.22)
+            }
+            .allowsHitTesting(false)
     }
 
     private var playerContactUnderlay: some View {
@@ -297,7 +379,7 @@ private struct RiverWorld: View {
             let x = reward.start.x + (reward.target.x - reward.start.x) * ease
             let y = reward.start.y + (reward.target.y - reward.start.y) * ease
                 - CGFloat(sin(t * .pi)) * 40
-            CurrencyIcon(size: isPad ? 28 : 22)
+            MasteryIcon(size: isPad ? 28 : 22)
                 .foregroundStyle(character.deepColor)
                 .position(x: x, y: y)
                 .opacity(1 - Double(max(0, t - 0.82) / 0.18))
@@ -423,6 +505,7 @@ private enum RiverPaint {
 /// jump independently above it.
 private struct HoneyWorldBackdrop: View {
     let projection: RiverProjection
+    let chapter: HoneyRunChapter
 
     var body: some View {
         let curveParallax = -projection.meander(for: 0.96) * 0.055
@@ -448,7 +531,62 @@ private struct HoneyWorldBackdrop: View {
                     endPoint: .bottom
                 )
             }
+            .overlay { HoneyChapterAtmosphere(chapter: chapter) }
+            .animation(.easeInOut(duration: 0.9), value: chapter)
             .allowsHitTesting(false)
+    }
+}
+
+private struct HoneyChapterAtmosphere: View {
+    let chapter: HoneyRunChapter
+
+    var body: some View {
+        ZStack {
+            switch chapter {
+            case .highForest:
+                LinearGradient(colors: [
+                    Color(red: 0.50, green: 0.78, blue: 0.20).opacity(0.14),
+                    Color(red: 1.0, green: 0.78, blue: 0.18).opacity(0.08)
+                ], startPoint: .top, endPoint: .bottom)
+            case .ravine:
+                LinearGradient(colors: [
+                    Color(red: 0.24, green: 0.47, blue: 0.68).opacity(0.18),
+                    Color(red: 0.59, green: 0.25, blue: 0.08).opacity(0.28)
+                ], startPoint: .top, endPoint: .bottom)
+                mist
+            case .deepValley:
+                LinearGradient(colors: [
+                    Color(red: 0.19, green: 0.10, blue: 0.32).opacity(0.36),
+                    Color(red: 0.92, green: 0.42, blue: 0.04).opacity(0.20)
+                ], startPoint: .top, endPoint: .bottom)
+                fireflies
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    private var mist: some View {
+        VStack {
+            Spacer()
+            LinearGradient(colors: [.clear, .white.opacity(0.16), .clear],
+                           startPoint: .leading, endPoint: .trailing)
+                .frame(height: 120)
+                .blur(radius: 16)
+                .offset(y: -70)
+        }
+    }
+
+    private var fireflies: some View {
+        GeometryReader { proxy in
+            ForEach(0..<18, id: \.self) { index in
+                Circle()
+                    .fill(Color.yellow.opacity(0.50 + Double(index % 3) * 0.12))
+                    .frame(width: 3 + CGFloat(index % 3), height: 3 + CGFloat(index % 3))
+                    .shadow(color: .yellow, radius: 5)
+                    .position(x: proxy.size.width * (0.08 + CGFloat((index * 37) % 84) / 100),
+                              y: proxy.size.height * (0.20 + CGFloat((index * 23) % 62) / 100))
+            }
+        }
     }
 }
 
@@ -2350,12 +2488,12 @@ private struct LogBoatView: View {
 }
 
 
-// MARK: - Answer stones
+// MARK: - Honeycomb answers
 
-/// One freestanding answer carried by the current. The wide, low silhouette
-/// and the ripple beneath it make the object read as a stone lying on the
-/// water rather than a card hovering above it.
-private struct RiverAnswerStoneView: View {
+/// One neutral honeycomb answer marker. Every option has exactly the same warm
+/// ivory treatment until it is touched; only then does the chosen marker bloom
+/// gold for correct or red for wrong.
+private struct RiverHoneycombAnswerView: View {
     let pot: RiverPot
     let projection: RiverProjection
     let isPad: Bool
@@ -2364,91 +2502,128 @@ private struct RiverAnswerStoneView: View {
 
     var body: some View {
         let perspective = projection.scale(for: pot.travel)
-        let width = RiverConfig.potSize(isPad: isPad) * 1.22 * perspective
-        let height = width * 0.66
+        let width = RiverConfig.potSize(isPad: isPad) * 1.34 * perspective
+        let height = width * 0.82
         let point = projection.point(lateral: pot.lateral, travel: pot.travel)
         let dismissal = min(max(max(groupDismissal, pot.reel), 0), 1)
-        let hitFade = pot.hit ? min(1, CGFloat(pot.hitAge) / 0.22) : 0
-        let fade = max(dismissal, hitFade)
+        let feedbackHold: Double = 0.46
+        let hitFade = pot.hit
+            ? min(1, max(0, CGFloat((pot.hitAge - feedbackHold) / 0.24)))
+            : 0
+        let fade = max(pot.hit ? 0 : dismissal, hitFade)
         let bob = CGFloat(sin(clock * 2.1 + Double(pot.lateral) * 0.9)) * 1.4 * perspective
+        let isWrong = pot.hit && !pot.isCorrect
+        let faceColors: [Color] = pot.hit
+            ? (pot.isCorrect
+               ? [Color(red: 1.00, green: 0.86, blue: 0.12),
+                  Color(red: 0.94, green: 0.52, blue: 0.04)]
+               : [Color(red: 0.94, green: 0.25, blue: 0.20),
+                  Color(red: 0.67, green: 0.08, blue: 0.08)])
+            : [Color(red: 1.00, green: 0.94, blue: 0.73),
+               Color(red: 0.96, green: 0.72, blue: 0.20)]
+        let border = pot.hit && !pot.isCorrect
+            ? Color(red: 0.46, green: 0.04, blue: 0.04)
+            : Color(red: 0.44, green: 0.22, blue: 0.04)
 
         return ZStack {
             Ellipse()
-                .fill(Color(red: 0.12, green: 0.32, blue: 0.38).opacity(0.30))
-                .frame(width: width * 1.18, height: height * 0.30)
-                .offset(y: height * 0.27)
+                .fill((pot.hit ? faceColors.last! : Color.yellow).opacity(0.30))
+                .frame(width: width * 1.22, height: height * 0.27)
+                .blur(radius: pot.hit ? 4 : 1)
+                .offset(y: height * 0.32)
 
-            RiverAnswerStoneShape()
+            RiverHoneycombAnswerShape()
                 .fill(
                     LinearGradient(
-                        colors: [
-                            Color(red: 0.68, green: 0.64, blue: 0.54),
-                            Color(red: 0.43, green: 0.42, blue: 0.38)
-                        ],
+                        colors: faceColors,
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
                 )
                 .overlay {
-                    RiverAnswerStoneShape()
-                        .stroke(Color(red: 0.27, green: 0.28, blue: 0.27).opacity(0.75),
-                                lineWidth: max(1, width * 0.025))
+                    RiverHoneycombAnswerShape()
+                        .stroke(border, lineWidth: max(2, width * 0.045))
                 }
-                .overlay(alignment: .topLeading) {
-                    Capsule()
-                        .fill(.white.opacity(0.20))
-                        .frame(width: width * 0.40, height: height * 0.10)
-                        .rotationEffect(.degrees(-8))
-                        .offset(x: width * 0.16, y: height * 0.15)
+                .overlay {
+                    RiverHoneycombAnswerShape()
+                        .inset(by: width * 0.09)
+                        .stroke(.white.opacity(pot.hit ? 0.48 : 0.70),
+                                lineWidth: max(1, width * 0.018))
                 }
+                .shadow(color: pot.hit ? faceColors.last!.opacity(0.70) : .black.opacity(0.24),
+                        radius: pot.hit ? 10 : 3,
+                        y: pot.hit ? 0 : 2)
 
             Text(verbatim: pot.text)
-                .font(.system(size: width * 0.35, weight: .black, design: .rounded))
+                .font(.system(size: width * 0.34, weight: .black, design: .rounded))
                 .minimumScaleFactor(0.35)
                 .lineLimit(1)
-                .foregroundStyle(.white)
-                .shadow(color: .black.opacity(0.55), radius: 1, y: 1)
-                .padding(.horizontal, width * 0.12)
+                .foregroundStyle(isWrong ? .white : Color(red: 0.30, green: 0.14, blue: 0.02))
+                .shadow(color: .white.opacity(isWrong ? 0 : 0.45), radius: 1, y: 1)
+                .padding(.horizontal, width * 0.16)
+
+            if pot.hit {
+                Image(systemName: pot.isCorrect ? "checkmark" : "xmark")
+                    .font(.system(size: width * 0.16, weight: .black))
+                    .foregroundStyle(pot.isCorrect ? Color(red: 0.26, green: 0.34, blue: 0.02) : .white)
+                    .padding(width * 0.055)
+                    .background(.white.opacity(pot.isCorrect ? 0.72 : 0.20), in: Circle())
+                    .offset(x: width * 0.35, y: -height * 0.35)
+                    .transition(.scale.combined(with: .opacity))
+            }
         }
         .frame(width: width, height: height)
-        .scaleEffect(1 - fade * 0.18)
+        .scaleEffect((pot.hit ? 1.10 : 1) - fade * 0.18)
         .opacity(Double(1 - fade))
-        .position(x: point.x, y: point.y - height * 0.18 + bob)
+        .position(x: point.x, y: point.y - height * 0.26 + bob)
+        .animation(.spring(response: 0.22, dampingFraction: 0.58), value: pot.hit)
         .allowsHitTesting(false)
     }
 }
 
-private struct RiverAnswerStoneShape: Shape {
+private struct RiverHoneycombAnswerShape: InsettableShape {
+    var insetAmount: CGFloat = 0
+
     func path(in rect: CGRect) -> Path {
+        let rect = rect.insetBy(dx: insetAmount, dy: insetAmount)
         var path = Path()
-        path.move(to: CGPoint(x: rect.minX + rect.width * 0.10,
-                              y: rect.minY + rect.height * 0.57))
-        path.addQuadCurve(to: CGPoint(x: rect.minX + rect.width * 0.25,
-                                      y: rect.minY + rect.height * 0.14),
-                          control: CGPoint(x: rect.minX + rect.width * 0.10,
-                                           y: rect.minY + rect.height * 0.25))
-        path.addQuadCurve(to: CGPoint(x: rect.minX + rect.width * 0.72,
-                                      y: rect.minY + rect.height * 0.10),
-                          control: CGPoint(x: rect.midX,
-                                           y: rect.minY - rect.height * 0.02))
-        path.addQuadCurve(to: CGPoint(x: rect.maxX - rect.width * 0.05,
-                                      y: rect.minY + rect.height * 0.55),
-                          control: CGPoint(x: rect.maxX,
-                                           y: rect.minY + rect.height * 0.22))
-        path.addQuadCurve(to: CGPoint(x: rect.minX + rect.width * 0.68,
-                                      y: rect.maxY - rect.height * 0.05),
-                          control: CGPoint(x: rect.maxX,
-                                           y: rect.maxY - rect.height * 0.08))
-        path.addQuadCurve(to: CGPoint(x: rect.minX + rect.width * 0.18,
-                                      y: rect.maxY - rect.height * 0.12),
-                          control: CGPoint(x: rect.midX,
-                                           y: rect.maxY + rect.height * 0.03))
-        path.addQuadCurve(to: CGPoint(x: rect.minX + rect.width * 0.10,
-                                      y: rect.minY + rect.height * 0.57),
-                          control: CGPoint(x: rect.minX,
-                                           y: rect.maxY - rect.height * 0.25))
+        path.move(to: CGPoint(x: rect.midX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + rect.height * 0.25))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - rect.height * 0.25))
+        path.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - rect.height * 0.25))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + rect.height * 0.25))
         path.closeSubpath()
         return path
+    }
+
+    func inset(by amount: CGFloat) -> RiverHoneycombAnswerShape {
+        var copy = self
+        copy.insetAmount += amount
+        return copy
+    }
+}
+
+private struct HoneyAnswerZoneGlow: View {
+    let clock: Double
+
+    var body: some View {
+        ZStack {
+            Capsule()
+                .fill(Color.yellow.opacity(0.16))
+                .blur(radius: 7)
+            Capsule()
+                .stroke(Color.white.opacity(0.34),
+                        style: StrokeStyle(lineWidth: 1.2, dash: [6, 8]))
+            HStack(spacing: 8) {
+                ForEach(0..<3, id: \.self) { index in
+                    RiverHoneycombAnswerShape()
+                        .stroke(Color.yellow.opacity(0.30), lineWidth: 1)
+                        .frame(width: 13, height: 11)
+                        .opacity(0.55 + 0.25 * sin(clock * 2.2 + Double(index)))
+                }
+            }
+        }
     }
 }
 

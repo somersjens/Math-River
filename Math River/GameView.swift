@@ -98,6 +98,8 @@ struct GameView: View {
     /// Raised by the cap button once points have been earned, because a scored
     /// run cannot be rewound into a lesson.
     @State private var showsTutorialNotice = false
+    @State private var chapterAnnouncement: HoneyRunChapter?
+    @State private var showsRouteHoneyToast = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -178,7 +180,21 @@ struct GameView: View {
                     withAnimation(.easeOut(duration: 0.2)) { showsTutorialNotice = false }
                 }
                 .transition(.opacity)
-                .zIndex(3)
+                    .zIndex(3)
+            }
+
+            if let chapterAnnouncement, !showsIntro, !showsResult {
+                HoneyChapterAnnouncement(chapter: chapterAnnouncement,
+                                         theme: character,
+                                         isPad: isPad)
+                    .transition(.opacity.combined(with: .scale(scale: 0.94)))
+                    .zIndex(4)
+            }
+
+            if showsRouteHoneyToast, !showsIntro, !showsResult {
+                RouteHoneyToast(theme: character, isPad: isPad)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .zIndex(4)
             }
         }
         .animation(.easeInOut(duration: 0.28), value: model.isGameOver)
@@ -212,6 +228,28 @@ struct GameView: View {
                 playsLevelCompletion = true
             } else {
                 showsResult = true
+            }
+        }
+        .onChange(of: model.roundNumber) { roundNumber in
+            let chapter = HoneyRunChapter.chapter(roundNumber: roundNumber,
+                                                  maximumRounds: model.maximumRounds)
+            guard roundNumber == 1 || roundNumber == 5 || roundNumber == 9 else { return }
+            withAnimation(.spring(response: 0.42, dampingFraction: 0.82)) {
+                chapterAnnouncement = chapter
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
+                guard chapterAnnouncement == chapter else { return }
+                withAnimation(.easeOut(duration: 0.28)) { chapterAnnouncement = nil }
+            }
+        }
+        .onChange(of: model.routeHoneyPickupID) { pickupID in
+            guard pickupID > 0 else { return }
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.70)) {
+                showsRouteHoneyToast = true
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.25) {
+                guard model.routeHoneyPickupID == pickupID else { return }
+                withAnimation(.easeOut(duration: 0.24)) { showsRouteHoneyToast = false }
             }
         }
         .onDisappear {
@@ -300,6 +338,7 @@ struct GameView: View {
                                playsEntrance: playsKingEntrance,
                                playsLevelCompletion: playsLevelCompletion,
                                reduceMotion: reduceMotion,
+                               honeyFlowActive: model.isHoneyFlowActive,
                                tutorialPlan: tutorial.plan,
                                reservesTutorialMessage: reservesTutorialMessage,
                                topReserve: playfieldTopReserve(topInset: topInset),
@@ -307,11 +346,25 @@ struct GameView: View {
                                scoreTarget: scoreIconCenter,
                                onAnswer: { model.select(optionID: $0) },
                                onRewardArrived: model.scoreBubbleArrived,
+                               onBranchHoney: model.collectRouteHoney,
+                               onLanding: model.landed,
                                onEntranceComplete: finishKingEntrance,
                                onLevelCompletionStarted: { showsFinale = true },
                                onLevelCompletionFinished: finishLevelCompletion,
                                onTutorialEvent: tutorial.handle,
                                onWaveComplete: model.completeWave)
+
+            // The forest stays vivid below, while the reading layer gets a
+            // calm strip of contrast. It has no card edge and therefore never
+            // competes with the sum board or the answer markers.
+            LinearGradient(colors: [.black.opacity(0.20),
+                                    .black.opacity(0.08),
+                                    .clear],
+                           startPoint: .top,
+                           endPoint: .bottom)
+                .frame(height: playfieldTopReserve(topInset: topInset) + (isPad ? 72 : 52))
+                .ignoresSafeArea(edges: .top)
+                .allowsHitTesting(false)
 
             hud
                 .padding(.leading, max(isPad ? 28 : 16, screenInsets.leading + 12))
@@ -380,19 +433,34 @@ struct GameView: View {
     // MARK: - HUD
 
     private var hud: some View {
-        VStack(alignment: .leading, spacing: isPad ? 10 : 8) {
+        VStack(alignment: .leading, spacing: isPad ? 8 : 6) {
+            // Landscape has width to spare but much less height than the old
+            // portrait composition. The controls therefore flank the sum board
+            // in equal-width rails. Equal rails keep the board optically centred
+            // over the track on every iPhone and iPad width.
             ZStack(alignment: .top) {
                 RiverQuestionBanner(prompt: model.round?.question.prompt ?? "",
                                     roundID: model.round?.id,
                                     feedback: model.answerFeedback,
                                     ink: character.deepColor,
                                     isPad: isPad)
+                    .padding(.horizontal, hudSideWidth + (isPad ? 14 : 10))
                     .allowsHitTesting(false)
 
-                HStack(alignment: .top, spacing: isPad ? 12 : 10) {
+                HStack(alignment: .top, spacing: 0) {
                     pauseButton
+                        .frame(width: hudSideWidth, alignment: .leading)
                     Spacer(minLength: 0)
-                    progressCounter
+                    VStack(alignment: .trailing, spacing: isPad ? 8 : 6) {
+                        progressCounter
+                        HoneyFlowMeter(progress: model.honeyFlowProgress,
+                                       isActive: model.isHoneyFlowActive,
+                                       burstID: model.honeyFlowBurstID,
+                                       theme: character,
+                                       isPad: isPad,
+                                       showsLabel: isPad)
+                    }
+                    .frame(width: hudSideWidth, alignment: .trailing)
                 }
             }
 
@@ -428,12 +496,13 @@ struct GameView: View {
 
     private var hudControlSize: CGFloat { isPad ? 44 : 34 }
     private var pauseGlyphSize: CGFloat { isPad ? 22 : 16 }
+    private var hudSideWidth: CGFloat { isPad ? 236 : 104 }
     private var hudColumnHeight: CGFloat { RiverQuestionBanner.height(isPad: isPad) }
 
     /// Same disc as the pause button, with the score as a digit on it.
     private var progressCounter: some View {
         HStack(spacing: isPad ? 6 : 4) {
-            CurrencyIcon(size: isPad ? 19 : 14)
+            MasteryIcon(size: isPad ? 19 : 14)
                 .foregroundStyle(.white)
                 .background {
                     GeometryReader { proxy in
@@ -463,7 +532,7 @@ struct GameView: View {
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: model.cards)
         .accessibilityElement(children: .ignore)
         .accessibilityIdentifier("progress")
-        .accessibilityLabel(Text(L("game.bubblesCollected \(model.cards)")))
+        .accessibilityLabel(Text(L("game.accessibility.scoreOutOf \(model.cards) \(model.maximumRounds)")))
         .accessibilityValue(Text(verbatim: "\(LN(model.cards)) / \(LN(model.maximumRounds))"))
     }
 
@@ -472,6 +541,88 @@ struct GameView: View {
     /// the background.
     private var isArenaRunning: Bool {
         !showsIntro && (!model.isGameOver || playsLevelCompletion) && scenePhase == .active
+    }
+}
+
+struct HoneyFlowMeter: View {
+    let progress: Int
+    let isActive: Bool
+    let burstID: Int
+    let theme: AnimalCharacter
+    let isPad: Bool
+    var showsLabel = true
+
+    var body: some View {
+        HStack(spacing: isPad ? 7 : 5) {
+            CurrencyIcon(size: isPad ? 16 : 12)
+            ForEach(0..<GameConfig.honeyFlowThreshold, id: \.self) { index in
+                Capsule()
+                    .fill(index < progress ? Color.yellow : Color.white.opacity(0.24))
+                    .frame(width: isPad ? 24 : 18, height: isPad ? 8 : 6)
+                    .shadow(color: isActive ? .yellow.opacity(0.9) : .clear, radius: 5)
+            }
+            if showsLabel {
+                Text(verbatim: isActive
+                     ? L("Honey Flow! +\(GameConfig.honeyFlowBonusHoney)")
+                     : L(key: "Honey Flow"))
+                    .font(.system(size: isPad ? 13 : 10, weight: .heavy, design: .rounded))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, isPad ? 11 : 9)
+        .frame(height: isPad ? 30 : 24)
+        .background(Capsule().fill(theme.deepColor.opacity(isActive ? 0.96 : 0.78)))
+        .overlay(Capsule().stroke(Color.yellow.opacity(isActive ? 0.9 : 0.24), lineWidth: 1.2))
+        .scaleEffect(isActive ? 1.06 : 1)
+        .animation(.spring(response: 0.34, dampingFraction: 0.62), value: burstID)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(L("Honey Flow: \(progress) of \(GameConfig.honeyFlowThreshold)")))
+    }
+}
+
+private struct HoneyChapterAnnouncement: View {
+    let chapter: HoneyRunChapter
+    let theme: AnimalCharacter
+    let isPad: Bool
+
+    var body: some View {
+        VStack {
+            Spacer()
+            Text(verbatim: L(key: chapter.titleKey))
+                .font(.system(size: isPad ? 26 : 19, weight: .heavy, design: .rounded))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 10)
+                .background(theme.deepColor.opacity(0.86), in: Capsule())
+                .overlay(Capsule().stroke(Color.yellow.opacity(0.7), lineWidth: 1.5))
+                .shadow(color: .black.opacity(0.24), radius: 10, y: 5)
+            Spacer().frame(height: isPad ? 130 : 92)
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+private struct RouteHoneyToast: View {
+    let theme: AnimalCharacter
+    let isPad: Bool
+
+    var body: some View {
+        VStack {
+            Spacer()
+            HStack(spacing: 7) {
+                CurrencyIcon(size: isPad ? 21 : 16)
+                Text(verbatim: L(key: "Branch honey +1"))
+                    .font(.system(size: isPad ? 17 : 13, weight: .heavy, design: .rounded))
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 15)
+            .padding(.vertical, 9)
+            .background(theme.deepColor.opacity(0.90), in: Capsule())
+            .padding(.bottom, isPad ? 80 : 54)
+        }
+        .allowsHitTesting(false)
     }
 }
 

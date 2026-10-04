@@ -216,12 +216,17 @@ final class MathRiverArena: ObservableObject {
     /// World point the reaching paw aims at — the jar, while it is in flight.
     @Published private(set) var grabTarget: CGPoint = .zero
     @Published private(set) var isCelebrating = false
+    /// Purely visual/reward state. It never participates in slide speed or
+    /// answer pacing.
+    @Published private(set) var honeyFlowActive = false
     @Published private(set) var size: CGSize = .zero
     @Published private(set) var isPad = false
 
     var onAnswer: ((UUID) -> Bool)?
     var onRewardArrived: (() -> Void)?
     var onWaveComplete: (() -> Void)?
+    var onBranchHoney: (() -> Void)?
+    var onLanding: (() -> Void)?
     var onTutorialEvent: ((CrabTutorialEvent) -> Void)?
 
     private var loadedRoundID: UUID?
@@ -252,6 +257,7 @@ final class MathRiverArena: ObservableObject {
     private var frameRecoveryDuration: CFTimeInterval = 0
     private var qualityChangeCooldown: CFTimeInterval = 0
     private var splashBudget = 0
+    private var rewardedBranchKeys: Set<String> = []
 #if DEBUG
     private var didApplyPreviewPhase = false
     private var previousDiagnosticPosition: HoneyVector3?
@@ -296,6 +302,7 @@ final class MathRiverArena: ObservableObject {
     func setLive(_ live: Bool) { isLive = live }
     func setReduceMotion(_ reduces: Bool) { reduceMotion = reduces }
     func setScoreTarget(_ target: CGPoint?) { scoreTarget = target }
+    func setHoneyFlowActive(_ active: Bool) { honeyFlowActive = active }
     func configureSession(maximumRounds: Int) {
         self.maximumRounds = max(1, maximumRounds)
     }
@@ -384,6 +391,8 @@ final class MathRiverArena: ObservableObject {
         current = 1
         calmness = 0
         isCelebrating = false
+        honeyFlowActive = false
+        rewardedBranchKeys.removeAll(keepingCapacity: true)
         isReeling = false
         reelLift = 0
         grabReach = 0
@@ -482,6 +491,22 @@ final class MathRiverArena: ObservableObject {
                 fisherVest: index % 4
             ))
         }
+#if DEBUG
+        if HoneySlidePreviewMode.freezesAnswers {
+            for index in pots.indices {
+                let previewTravel = CGFloat(0.30) + CGFloat(index) * 0.015
+                pots[index].travel = previewTravel
+                pots[index].fisherTravel = previewTravel
+            }
+        }
+        if let previewFeedback = HoneySlidePreviewMode.answerFeedback,
+           let chosenIndex = pots.firstIndex(where: {
+               previewFeedback == .correct ? $0.isCorrect : !$0.isCorrect
+           }) {
+            pots[chosenIndex].hit = true
+            pots[chosenIndex].hitAge = 0.08
+        }
+#endif
         self.pots = pots
         followFishers()
         seatSides()
@@ -632,6 +657,14 @@ final class MathRiverArena: ObservableObject {
            sample.localProgress >= HoneySlideTuning.splitCommitProgress,
            activeBranch == 0 {
             activeBranch = lateralPosition < 0 ? -1 : 1
+            if isLive {
+                let lap = Int(floor(scroll / route.totalLength))
+                let rewardKey = "\(lap).\(sample.segmentID)"
+                if rewardedBranchKeys.insert(rewardKey).inserted {
+                    onBranchHoney?()
+                    emitSplash(at: project(lateral: displayLateral, travel: 0), honey: true)
+                }
+            }
         } else if !sample.locksBranch, sample.kind != .split {
             activeBranch = 0
         }
@@ -650,6 +683,7 @@ final class MathRiverArena: ObservableObject {
         if lastTrackKind == .jump, sample.kind == .landing {
             landingImpact = 1
             emitSplash(at: project(lateral: displayLateral, travel: 0), honey: true)
+            onLanding?()
         } else {
             landingImpact = max(0, landingImpact - CGFloat(dt / HoneySlideTuning.landingRecoveryDuration))
         }
@@ -826,9 +860,20 @@ final class MathRiverArena: ObservableObject {
         guard !pots.isEmpty || waveFinishing else { return }
         // Answer timing is time-based too: changing forward speed grows the
         // preview distance, while the decision window stays predictable.
-        let step = currentSlideSpeed
+        let step: CGFloat
+#if DEBUG
+        if HoneySlidePreviewMode.freezesAnswers {
+            step = 0
+        } else {
+            step = currentSlideSpeed
+                / HoneySlideTuning.cameraLookAheadDistance(for: currentSlideSpeed)
+                * CGFloat(dt)
+        }
+#else
+        step = currentSlideSpeed
             / HoneySlideTuning.cameraLookAheadDistance(for: currentSlideSpeed)
             * CGFloat(dt)
+#endif
         let duration = reduceMotion ? RiverConfig.reelDurationReduced : RiverConfig.reelDuration
         let grabDuration = reduceMotion ? RiverConfig.grabDurationReduced : RiverConfig.grabDuration
         if isReeling {
@@ -841,7 +886,13 @@ final class MathRiverArena: ObservableObject {
             if pots[i].grabFlight == 0 {
                 pots[i].travel -= step
             }
-            if pots[i].hit { pots[i].hitAge += dt }
+            if pots[i].hit {
+#if DEBUG
+                if !HoneySlidePreviewMode.freezesAnswers { pots[i].hitAge += dt }
+#else
+                pots[i].hitAge += dt
+#endif
+            }
             if pots[i].fisherReact > 0 {
                 pots[i].fisherReact = max(0, pots[i].fisherReact - dt)
             }
@@ -936,6 +987,10 @@ final class MathRiverArena: ObservableObject {
         if splashBudget % cadence == 0, size.width > 1, entrance < 0.4, calmness < 0.85 {
             emitDroplet(nearBoat: true, honey: true)
             if !reduceMotion, visualQuality != .constrained {
+                emitDroplet(nearBoat: true, honey: true)
+            }
+            if honeyFlowActive, !reduceMotion {
+                emitDroplet(nearBoat: true, honey: true)
                 emitDroplet(nearBoat: true, honey: true)
             }
         }

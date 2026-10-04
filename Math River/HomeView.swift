@@ -4,7 +4,8 @@
 //
 //  Home screen: one menu card holding the player, the streak, the topic
 //  selector and the card-count choice, with the level grid underneath.
-//  Portrait only.
+//  Landscape-first on iPhone and iPad, with a stacked fallback for previews
+//  and narrow multitasking windows.
 //
 
 import SwiftUI
@@ -27,6 +28,8 @@ private struct ScoreCelebration: Identifiable {
     let levelStart: Int
     let topicStart: Int
     let totalStart: Int
+    let masteryImproved: Bool
+    let honeyEarned: Bool
     /// True only when this session turned an unfinished board into a maxed one.
     /// That inserts the fern-and-crown reveal before its bubble flies away.
     let revealsMaximum: Bool
@@ -51,6 +54,7 @@ struct HomeView: View {
     @ObservedObject private var progressSync = ProgressSync.shared
     @ObservedObject private var language = LanguageManager.shared
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     @State private var selection: LevelSelection?
     @State private var showPremium = false
@@ -80,7 +84,8 @@ struct HomeView: View {
     @State private var holdsPreSessionValues = false
     /// Stamped the moment the flying card reaches the topic counter. Both the
     /// topic total and the grand total start counting up from it, together.
-    @State private var cardArrival: Date?
+    @State private var masteryArrival: Date?
+    @State private var honeyArrival: Date?
     @State private var highlightsHeaderCards = false
     /// The stable value shown in the summary line under the name. It only
     /// changes once the return celebration has settled, so the remaining count
@@ -118,6 +123,12 @@ struct HomeView: View {
     /// A full-width landscape iPad can comfortably show a fourth level card.
     /// Portrait and narrow multitasking windows retain the established layout.
     private var isWidePad: Bool { isPad && viewportWidth >= 980 }
+    private var isLandscapeLayout: Bool {
+        verticalSizeClass == .compact || (isPad && viewportWidth >= 900)
+    }
+    private var landscapeMenuWidth: CGFloat {
+        min(isPad ? 430 : 330, viewportWidth * (isPad ? 0.38 : 0.42))
+    }
 
     private var displayName: String {
         playerName.isEmpty ? CharacterCatalog.defaultPlayerName : playerName
@@ -149,28 +160,19 @@ struct HomeView: View {
                     .blur(radius: showsTutorialHint ? 8 : 0)
 
                 ScrollView {
-                    VStack(alignment: .leading, spacing: isPad ? 22 : 16) {
-                        menuCard(topicTotal: topicTotal)
-                            // The card always spans exactly as wide as the level
-                            // grid below it. In wide landscape that grid opens up
-                            // to four cards, and a menu card left at its portrait
-                            // width would sit visibly narrower than the row under it.
-                            .frame(maxWidth: isWidePad ? .infinity : 760)
-                            .frame(maxWidth: .infinity)
-                            // The closing tutorial step is about the level's score,
-                            // not about the settings above it.
-                            .blur(radius: showsTutorialHint ? 7 : 0)
-                            .opacity(showsTutorialHint ? 0.45 : 1)
-                        levelGrid(topicTotal: topicTotal)
-                    }
+                    homeContent(topicTotal: topicTotal)
                     .padding(isPad ? 26 : 16)
-                    .frame(maxWidth: isWidePad ? 1080 : (isPad ? 760 : 640))
+                    .frame(maxWidth: isLandscapeLayout
+                           ? (isPad ? 1420 : 1120)
+                           : (isWidePad ? 1080 : (isPad ? 760 : 640)))
                     .frame(maxWidth: .infinity)
                 }
                 .background(
                     GeometryReader { proxy in
                         Color.clear
-                            .onAppear { viewportWidth = proxy.size.width }
+                            .onAppear {
+                                viewportWidth = proxy.size.width
+                            }
                             .onChange(of: proxy.size.width) { width in viewportWidth = width }
                     }
                 )
@@ -273,6 +275,31 @@ struct HomeView: View {
         .onChange(of: scenePhase) { phase in
             guard phase == .active else { return }
             AppAudio.shared.startMusic()
+        }
+    }
+
+    @ViewBuilder
+    private func homeContent(topicTotal: Int) -> some View {
+        if isLandscapeLayout {
+            HStack(alignment: .top, spacing: isPad ? 24 : 16) {
+                menuCard(topicTotal: topicTotal)
+                    .frame(width: landscapeMenuWidth)
+                    .blur(radius: showsTutorialHint ? 7 : 0)
+                    .opacity(showsTutorialHint ? 0.45 : 1)
+
+                levelGrid(topicTotal: topicTotal)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
+        } else {
+            VStack(alignment: .leading, spacing: isPad ? 22 : 16) {
+                menuCard(topicTotal: topicTotal)
+                    // Stacked layouts keep the established shared width.
+                    .frame(maxWidth: isWidePad ? .infinity : 760)
+                    .frame(maxWidth: .infinity)
+                    .blur(radius: showsTutorialHint ? 7 : 0)
+                    .opacity(showsTutorialHint ? 0.45 : 1)
+                levelGrid(topicTotal: topicTotal)
+            }
         }
     }
 
@@ -409,7 +436,8 @@ struct HomeView: View {
     private var cardSummary: some View {
         let total = headerCount(start: celebration?.totalStart,
                                 heldStart: lastPlayedTotal,
-                                current: totalCards)
+                                current: totalCards,
+                                arrival: honeyArrival)
         return AlternatingCardSummary(totalFrom: total.from,
                                totalTo: total.to,
                                celebrationStartedAt: total.at,
@@ -456,7 +484,8 @@ struct HomeView: View {
     private func topicHeader(topicTotal: Int) -> some View {
         let count = headerCount(start: celebration?.topicStart,
                                 heldStart: lastPlayedTopic,
-                                current: topicTotal)
+                                current: topicTotal,
+                                arrival: masteryArrival)
         return HStack(alignment: .center, spacing: 8) {
             Text(verbatim: L(key: topic.titleKey))
                 .font(.system(size: isPad ? 32 : 20, weight: .heavy, design: .rounded))
@@ -470,7 +499,7 @@ struct HomeView: View {
             } icon: {
                 // The card that flies up from the level card aims here, so the
                 // reward visibly joins this topic before the totals move.
-                    CurrencyIcon(size: isPad ? 22 : 14)
+                    MasteryIcon(size: isPad ? 22 : 14)
                     .scaleEffect(highlightsHeaderCards ? 1.32 : 1)
                     .rotationEffect(.degrees(highlightsHeaderCards ? -10 : 0))
                     .reportAnchor("topicTotal")
@@ -1021,10 +1050,10 @@ struct HomeView: View {
     /// it simply shows the live value.
     private func headerCount(start: Int?,
                              heldStart: Int,
-                             current: Int) -> (from: Int, to: Int, at: Date?) {
+                             current: Int,
+                             arrival: Date?) -> (from: Int, to: Int, at: Date?) {
         if let start, celebration != nil {
-            // Both counters read this, so they always move as one.
-            if let cardArrival { return (start, current, cardArrival) }
+            if let arrival { return (start, current, arrival) }
             return (start, start, nil)
         }
         // The session is still on screen, or its cover is closing: keep showing
@@ -1067,20 +1096,25 @@ struct HomeView: View {
                                                levelStart: levelStart,
                                                topicStart: topicStart,
                                                totalStart: totalStart,
+                                               masteryImproved: levelNow > levelStart,
+                                               honeyEarned: totalCards > totalStart,
                                                revealsMaximum: revealsMaximum)
             self.celebration = celebration
-            cardArrival = nil
+            masteryArrival = nil
+            honeyArrival = nil
             // The celebration now owns these values, and it starts from the
             // very same ones the hold was showing.
             holdsPreSessionValues = false
-            AppAudio.shared.playCardCount()
-            // The level card counts up on its own first; the reward only leaves
-            // it once that has landed.
-            let departureDelay = Self.cardSettleDelay
-                + (celebration.revealsMaximum ? Self.maximumRevealPause : 0)
+            if celebration.masteryImproved { AppAudio.shared.playCardCount() }
+            // Mastery first settles on the level card. Honey is independent and
+            // may still fly home after a replay that did not improve the record.
+            let departureDelay = celebration.masteryImproved
+                ? Self.cardSettleDelay + (celebration.revealsMaximum ? Self.maximumRevealPause : 0)
+                : 0.18
             DispatchQueue.main.asyncAfter(deadline: .now() + departureDelay) {
                 guard self.celebration?.id == celebration.id else { return }
-                self.launchCardFlight(for: celebration)
+                if celebration.masteryImproved { self.launchMasteryFlight(for: celebration) }
+                if celebration.honeyEarned { self.launchHoneyFlight(for: celebration) }
             }
             // Clear it once every part of the celebration has played out.
             let lifetime = departureDelay + Self.flightDuration
@@ -1088,7 +1122,8 @@ struct HomeView: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + lifetime) {
                 guard self.celebration?.id == celebration.id else { return }
                 self.celebration = nil
-                self.cardArrival = nil
+                self.masteryArrival = nil
+                self.honeyArrival = nil
                 // Card count, flight and totals are all finished now: preview
                 // the new remaining count once, straight away.
                 self.unlockPreviewTrigger &+= 1
@@ -1107,16 +1142,16 @@ struct HomeView: View {
         }
     }
 
-    /// Sends one card arcing from the level card's glyph up to the topic
-    /// counter, which is what makes the score feel like it was carried there.
+    /// Sends the improved mastery result to the topic total.
     /// If either endpoint is unknown the reward simply lands straight away.
-    private func launchCardFlight(for celebration: ScoreCelebration) {
+    private func launchMasteryFlight(for celebration: ScoreCelebration) {
         guard let source = cardGlyphAnchors[celebration.levelID],
               let destination = controlAnchors["topicTotal"] else {
-            landHeaderCards(for: celebration)
+            landMastery(for: celebration)
             return
         }
-        let flight = CardFlight(celebrationID: celebration.id,
+        let flight = CardFlight(kind: .mastery,
+                                celebrationID: celebration.id,
                                 source: source,
                                 destination: destination,
                                 sourcePointSize: isPad ? 13 : 9,
@@ -1131,16 +1166,48 @@ struct HomeView: View {
         AppAudio.shared.playCardFlight()
         DispatchQueue.main.asyncAfter(deadline: .now() + flight.duration) {
             flights.removeAll { $0.id == flight.id }
-            landHeaderCards(for: celebration)
+            landMastery(for: celebration)
         }
     }
 
-    /// The reward merges into the header: the topic total and the grand total
-    /// start counting at the same instant, and the topic glyph gives a small
-    /// welcoming pulse.
-    private func landHeaderCards(for celebration: ScoreCelebration) {
+    /// Honey is paid on every completed run, even when mastery does not move.
+    private func launchHoneyFlight(for celebration: ScoreCelebration) {
+        guard let source = cardGlyphAnchors[celebration.levelID],
+              let destination = controlAnchors["headerTotal"] else {
+            landHoney(for: celebration)
+            return
+        }
+        let flight = CardFlight(kind: .honey,
+                                celebrationID: celebration.id,
+                                source: source,
+                                destination: destination,
+                                sourcePointSize: isPad ? 13 : 9,
+                                destinationPointSize: isPad ? 20 : 13,
+                                arcHeight: isPad ? 72 : 50,
+                                color: Color(red: 0.94, green: 0.61, blue: 0.08),
+                                startedAt: Date().addingTimeInterval(0.08),
+                                duration: Self.flightDuration)
+        flights.append(flight)
+        AppAudio.shared.playCardFlight()
+        DispatchQueue.main.asyncAfter(deadline: .now() + flight.duration + 0.08) {
+            flights.removeAll { $0.id == flight.id }
+            landHoney(for: celebration)
+        }
+    }
+
+    private func landMastery(for celebration: ScoreCelebration) {
         guard self.celebration?.id == celebration.id else { return }
-        cardArrival = Date()
+        masteryArrival = Date()
+        pulseHeaderReward()
+    }
+
+    private func landHoney(for celebration: ScoreCelebration) {
+        guard self.celebration?.id == celebration.id else { return }
+        honeyArrival = Date()
+        pulseHeaderReward()
+    }
+
+    private func pulseHeaderReward() {
         AppAudio.shared.playMenuCardTotal()
         withAnimation(.spring(response: 0.42, dampingFraction: 0.56)) {
             highlightsHeaderCards = true
@@ -1182,7 +1249,7 @@ struct HomeView: View {
         }
     }
 
-    /// Banks a score exactly the way a finished session does, then runs the
+    /// Banks mastery and honey exactly the way a finished session does, then runs the
     /// ordinary return handler so the whole celebration plays.
     private func awardForSelfTest(_ level: MathLevel,
                                   cards: Int,
@@ -1190,13 +1257,12 @@ struct HomeView: View {
         rememberBeforePlaying(level)
         let store = Progress.store
         let board = board(for: level)
-        let gained = max(0, min(cards, board.maximum) - store.bestScore(board))
         _ = store.recordScore(cards, board: board)
         store.recordMaxCompletion(board)
-        _ = store.addCards(gained)
+        _ = store.addHoney(cards)
         if reachNextMilestone,
            let milestone = CharacterUnlocks.nextMilestone(totalCards: store.totalCards) {
-            _ = store.addCards(milestone.remaining)
+            _ = store.addHoney(milestone.remaining)
         }
         // Straight to the celebration: the self-test is about that sequence,
         // not about whatever the walkthrough may still owe the player.

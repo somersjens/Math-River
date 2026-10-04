@@ -48157,6 +48157,17 @@
         }
       }
     },
+    "%lld questions. Every correct answer earns honey." : {
+      "comment" : "Third line on the level intro card. The number is the fixed session length.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "%lld Aufgaben. Für jede richtige Antwort gibt es Honig." } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%lld questions. Every correct answer earns honey." } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "%lld preguntas. Cada respuesta correcta da miel." } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "%lld questions. Chaque bonne réponse rapporte du miel." } },
+        "nl" : { "stringUnit" : { "state" : "translated", "value" : "%lld vragen. Elk goed antwoord levert honing op." } }
+      }
+    },
     "levelIntro.subtraction.intro" : {
       "comment" : "First line of the level intro card for Subtraction. Emphasise the operation with Markdown **bold**, wherever it falls in your sentence.",
       "extractionState" : "manual",
@@ -99197,6 +99208,237 @@
             "value" : "Vula i-Premium · %@"
           }
         }
+      }
+    },
+    "%lld of %lld correct" : {
+      "comment" : "Primary result score. First number correct, second number questions in the run.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "%lld von %lld richtig" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%lld of %lld correct" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "%lld de %lld correctas" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "%lld sur %lld bonnes réponses" } },
+        "nl" : { "stringUnit" : { "state" : "translated", "value" : "%lld van %lld goed" } }
+      }
+    },
+    "%lld of %lld mastery stars" : {
+      "comment" : "VoiceOver summary for the three mastery stars.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "%lld von %lld Meistersternen" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%lld of %lld mastery stars" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "%lld de %lld estrellas de dominio" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "%lld étoiles de maîtrise sur %lld" } },
+        "nl" : { "stringUnit" : { "state" : "translated", "value" : "%lld van %lld beheersingssterren" } }
+      }
+    },
+    "%lld honey collected" : {
+      "comment" : "VoiceOver label for the persistent honey total in the home header.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "%lld Honig gesammelt" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%lld honey collected" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "%lld de miel recogida" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "%lld de miel récolté" } },
+        "nl" : { "stringUnit" : { "state" : "translated", "value" : "%lld honing verzameld" } }
+      }
+    },
+    "Almost! %@" : {
+      "comment" : "Short spoken prefix before the fully solved equation after a wrong answer.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Fast! %@" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Almost! %@" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "¡Casi! %@" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Presque ! %@" } },
+        "nl" : { "stringUnit" : { "state" : "translated", "value" : "Bijna! %@" } }
+      }
+    },
+    "Available from %lld honey" : {
+      "comment" : "Status under a character that unlocks at a lifetime honey total.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Verfügbar ab %lld Honig" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Available from %lld honey" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Disponible a partir de %lld de miel" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Disponible à partir de %lld de miel" } },
+        "nl" : { "stringUnit" : { "state" : "translated", "value" : "Beschikbaar vanaf %lld honing" } }
+      }
+    },
+    "Bonus honey +%lld" : {
+      "comment" : "Result-row total of Honey Flow and route bonus honey.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Bonushonig +%lld" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Bonus honey +%lld" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Miel extra +%lld" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Miel bonus +%lld" } },
+        "nl" : { "stringUnit" : { "state" : "translated", "value" : "Bonushoning +%lld" } }
+      }
+    },
+    "Branch honey +1" : {
+      "comment" : "Brief toast after choosing a split branch.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Abzweighonig +1" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Branch honey +1" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Miel de ruta +1" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Miel de parcours +1" } },
+        "nl" : { "stringUnit" : { "state" : "translated", "value" : "Routehoning +1" } }
+      }
+    },
+    "Breathe — next question ahead" : {
+      "comment" : "Quiet tunnel cue between question zones.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Durchatmen – gleich kommt die nächste Aufgabe" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Breathe — next question ahead" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Respira: se acerca la siguiente pregunta" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Respire — la prochaine question arrive" } },
+        "nl" : { "stringUnit" : { "state" : "translated", "value" : "Even ademhalen — de volgende som komt eraan" } }
+      }
+    },
+    "Deep Honey Valley" : {
+      "comment" : "Title of the final visual chapter in a run.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Tiefes Honigtal" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Deep Honey Valley" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Valle profundo de miel" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Vallée profonde de miel" } },
+        "nl" : { "stringUnit" : { "state" : "translated", "value" : "Diepe honingvallei" } }
+      }
+    },
+    "Great run — your honey is safely stored." : {
+      "comment" : "Subtitle on the result card after the fixed run ends.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Tolle Runde – dein Honig ist sicher gespeichert." } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Great run — your honey is safely stored." } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "¡Gran partida! Tu miel está guardada." } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Belle partie — ton miel est bien gardé." } },
+        "nl" : { "stringUnit" : { "state" : "translated", "value" : "Mooie run — je honing is veilig bewaard." } }
+      }
+    },
+    "Honey" : {
+      "comment" : "Label for persistent honey earned on the result screen.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Honig" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Honey" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Miel" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Miel" } },
+        "nl" : { "stringUnit" : { "state" : "translated", "value" : "Honing" } }
+      }
+    },
+    "Honey Flow" : {
+      "comment" : "Name of the three-correct-answer reward meter.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Honigfluss" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Honey Flow" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Flujo de miel" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Flux de miel" } },
+        "nl" : { "stringUnit" : { "state" : "translated", "value" : "Honey Flow" } }
+      }
+    },
+    "Honey Flow! +%lld" : {
+      "comment" : "Honey Flow meter label when the three-answer bonus activates.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Honigfluss! +%lld" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Honey Flow! +%lld" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "¡Flujo de miel! +%lld" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Flux de miel ! +%lld" } },
+        "nl" : { "stringUnit" : { "state" : "translated", "value" : "Honey Flow! +%lld" } }
+      }
+    },
+    "Honey Flow: %lld of %lld" : {
+      "comment" : "VoiceOver label for Honey Flow meter progress.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Honigfluss: %lld von %lld" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Honey Flow: %lld of %lld" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Flujo de miel: %lld de %lld" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Flux de miel : %lld sur %lld" } },
+        "nl" : { "stringUnit" : { "state" : "translated", "value" : "Honey Flow: %lld van %lld" } }
+      }
+    },
+    "High Honey Forest" : {
+      "comment" : "Title of the opening visual chapter in a run.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Hoher Honigwald" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "High Honey Forest" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Bosque alto de miel" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Haute forêt de miel" } },
+        "nl" : { "stringUnit" : { "state" : "translated", "value" : "Hoge honingbossen" } }
+      }
+    },
+    "Mastery" : {
+      "comment" : "Label for the persistent best-result tier.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Meisterung" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Mastery" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Dominio" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Maîtrise" } },
+        "nl" : { "stringUnit" : { "state" : "translated", "value" : "Beheersing" } }
+      }
+    },
+    "Practice %@ one more time." : {
+      "comment" : "Concrete result recommendation. The placeholder is the localized level title.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Übe %@ noch einmal." } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Practice %@ one more time." } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Practica %@ una vez más." } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Entraîne-toi encore une fois avec %@." } },
+        "nl" : { "stringUnit" : { "state" : "translated", "value" : "Oefen %@ nog één keer." } }
+      }
+    },
+    "Ravine and Falls" : {
+      "comment" : "Title of the middle visual chapter in a run.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Schlucht und Fälle" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Ravine and Falls" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Barranco y cascadas" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Ravin et cascades" } },
+        "nl" : { "stringUnit" : { "state" : "translated", "value" : "Ravijn en watervallen" } }
+      }
+    },
+    "Ready for the next level!" : {
+      "comment" : "Recommendation after reaching full mastery.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Bereit für das nächste Level!" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Ready for the next level!" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "¡Listo para el siguiente nivel!" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Prêt pour le niveau suivant !" } },
+        "nl" : { "stringUnit" : { "state" : "translated", "value" : "Klaar voor het volgende level!" } }
+      }
+    },
+    "Unlock with honey" : {
+      "comment" : "Heading above characters earned with persistent honey.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Mit Honig freischalten" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Unlock with honey" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Desbloquear con miel" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Débloquer avec du miel" } },
+        "nl" : { "stringUnit" : { "state" : "translated", "value" : "Vrijspelen met honing" } }
+      }
+    },
+    "You’ve earned %lld honey" : {
+      "comment" : "Status under a character already earned with lifetime honey.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Du hast %lld Honig verdient" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "You’ve earned %lld honey" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Has conseguido %lld de miel" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Tu as gagné %lld de miel" } },
+        "nl" : { "stringUnit" : { "state" : "translated", "value" : "Je hebt %lld honing verdiend" } }
       }
     },
     "result.complete" : {

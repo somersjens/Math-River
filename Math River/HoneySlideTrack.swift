@@ -163,6 +163,39 @@ enum HoneySegmentKind: String, CaseIterable {
     case answerApproach
 }
 
+/// The visual arc of one twelve-question run. Question rules stay identical;
+/// only scenery and the kind of flow between safe answer corridors build up.
+enum HoneyRunChapter: Int, CaseIterable, Equatable {
+    case highForest
+    case ravine
+    case deepValley
+
+    static func chapter(roundNumber: Int, maximumRounds: Int) -> Self {
+#if DEBUG
+        let arguments = ProcessInfo.processInfo.arguments
+        if let flag = arguments.firstIndex(of: "-HoneySlideChapter"),
+           arguments.indices.contains(flag + 1),
+           let raw = Int(arguments[flag + 1]),
+           let override = Self(rawValue: raw) {
+            return override
+        }
+#endif
+        let maximum = max(1, maximumRounds)
+        let round = min(maximum, max(1, roundNumber))
+        let index = min(Self.allCases.count - 1,
+                        (round - 1) * Self.allCases.count / maximum)
+        return Self(rawValue: index) ?? .highForest
+    }
+
+    var titleKey: String {
+        switch self {
+        case .highForest: return "High Honey Forest"
+        case .ravine: return "Ravine and Falls"
+        case .deepValley: return "Deep Honey Valley"
+        }
+    }
+}
+
 struct HoneySlideSegment: Identifiable {
     let id: String
     let kind: HoneySegmentKind
@@ -369,7 +402,12 @@ struct HoneySlideRoute {
         HoneySlideSegment("quiet-answer-run", kind: .answerApproach, length: 96, width: 1.14, endWidth: 1.48,
                           heightDelta: -20, elevationUndulation: 1.6,
                           answerOffsets: [-0.82, -0.36, 0.36, 0.82]),
-        HoneySlideSegment("strong-valley-descent", kind: .descent, length: 84, width: 1.48, endWidth: 1.10,
+        // A short tunnel is a breathing beat between the high forest and the
+        // ravine. It is deliberately never used as an answer corridor.
+        HoneySlideSegment("forest-rest-tunnel", kind: .tunnel, length: 46, width: 1.48, endWidth: 1.28,
+                          heightDelta: -12, troughDepth: 0.14,
+                          cameraLookAhead: 1.08),
+        HoneySlideSegment("strong-valley-descent", kind: .descent, length: 84, width: 1.28, endWidth: 1.10,
                           lateralShift: -0.25, heightDelta: -60, troughDepth: 0.15,
                           elevationUndulation: 3.6,
                           speedMultiplier: 1.14, cameraLookAhead: 1.30),
@@ -379,10 +417,22 @@ struct HoneySlideRoute {
                           speedMultiplier: 1.10, cameraLookAhead: 1.36),
         HoneySlideSegment("low-valley-landing", kind: .landing, length: 76, width: 1.30, endWidth: 1.12,
                           lateralShift: 0.08, heightDelta: -24, elevationUndulation: 2.4),
-        HoneySlideSegment("long-fast-honey-slide", kind: .curve, length: 124, width: 1.12, endWidth: 1.18,
+        HoneySlideSegment("ravine-answer-overlook", kind: .answerApproach, length: 78, width: 1.12, endWidth: 1.42,
+                          heightDelta: -18, elevationUndulation: 1.3,
+                          answerOffsets: [-0.82, -0.36, 0.36, 0.82]),
+        HoneySlideSegment("long-fast-honey-slide", kind: .curve, length: 124, width: 1.42, endWidth: 1.18,
                           lateralShift: 0.12, heightDelta: -56, bendAmplitude: 0.22,
                           troughDepth: 0.14, banking: 0.16, elevationUndulation: -4.0,
                           speedMultiplier: 1.12, cameraLookAhead: 1.18),
+        // The finale offers a real left/right branch with one small honey
+        // pickup. Its compact length keeps every next question inside the
+        // bounded safe-corridor delay.
+        HoneySlideSegment("finale-split", kind: .split, length: 12, width: 1.18, endWidth: 1.05,
+                          heightDelta: -4, railings: true),
+        HoneySlideSegment("finale-branch", kind: .branch, length: 12, width: 1.05,
+                          lateralShift: 0.42, heightDelta: -5, railings: true),
+        HoneySlideSegment("finale-merge", kind: .merge, length: 12, width: 1.05, endWidth: 1.18,
+                          lateralShift: -0.42, heightDelta: -4, railings: true),
         HoneySlideSegment("valley-answer-finish", kind: .answerApproach, length: 100, width: 1.18, endWidth: 1.48,
                           lateralShift: 0, heightDelta: -24, elevationUndulation: 1.8,
                           answerOffsets: [-0.82, -0.36, 0.36, 0.82])
@@ -789,6 +839,11 @@ enum HoneySlideProfiler {
 }
 
 enum HoneySlidePreviewMode {
+    enum AnswerFeedback: String {
+        case correct
+        case wrong
+    }
+
     static var isActive: Bool {
         ProcessInfo.processInfo.arguments.contains("-HoneySlidePreview")
     }
@@ -817,6 +872,18 @@ enum HoneySlidePreviewMode {
     /// deterministic and remains frozen for screenshot comparisons.
     static var freezesMotion: Bool {
         isActive && !ProcessInfo.processInfo.arguments.contains("-HoneySlidePreviewRuns")
+    }
+
+    /// Screenshot previews also hold the answer group at a readable distance.
+    /// `-HoneySlidePreviewAnswer wrong|correct` pins one chosen state so both
+    /// neutral and post-choice designs can be inspected deterministically.
+    static var freezesAnswers: Bool { freezesMotion }
+
+    static var answerFeedback: AnswerFeedback? {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let index = arguments.firstIndex(of: "-HoneySlidePreviewAnswer"),
+              arguments.indices.contains(index + 1) else { return nil }
+        return AnswerFeedback(rawValue: arguments[index + 1].lowercased())
     }
 
     static var visualQualityOverride: HoneySlideVisualQuality? {
@@ -860,14 +927,60 @@ struct HoneySlideDebugPreview: View {
                            playsEntrance: true,
                            playsLevelCompletion: false,
                            reduceMotion: false,
+                           honeyFlowActive: ProcessInfo.processInfo.arguments.contains("-HoneyFlowPreview"),
                            topReserve: 0,
                            bottomReserve: 0,
                            scoreTarget: nil,
                            onAnswer: { _ in false },
                            onRewardArrived: {},
+                           onBranchHoney: {},
+                           onLanding: {},
                            onEntranceComplete: {},
                            onLevelCompletionFinished: {},
                            onWaveComplete: {})
+            .overlay(alignment: .top) {
+                let arguments = ProcessInfo.processInfo.arguments
+                if arguments.contains("-Phase5HUDPreview") {
+                    let feedbackKind = HoneySlidePreviewMode.answerFeedback
+                    let feedback = feedbackKind.map {
+                        RoundAnswerFeedback(roundID: round.id,
+                                            text: round.question.solved,
+                                            kind: $0 == .correct ? .correct : .wrong)
+                    }
+                    ZStack(alignment: .top) {
+                        LinearGradient(colors: [.black.opacity(0.20),
+                                                .black.opacity(0.08),
+                                                .clear],
+                                       startPoint: .top,
+                                       endPoint: .bottom)
+                            .frame(height: AppLayout.isPad ? 260 : 205)
+                        VStack(spacing: AppLayout.isPad ? 10 : 8) {
+                            RiverQuestionBanner(prompt: round.question.prompt,
+                                                roundID: round.id,
+                                                feedback: feedback,
+                                                ink: CharacterCatalog.current(isPremium: false).deepColor,
+                                                isPad: AppLayout.isPad)
+                            HoneyFlowMeter(progress: 2,
+                                           isActive: false,
+                                           burstID: 0,
+                                           theme: CharacterCatalog.current(isPremium: false),
+                                           isPad: AppLayout.isPad)
+                        }
+                        .padding(.horizontal, AppLayout.isPad ? 28 : 16)
+                        .padding(.top, AppLayout.isPad ? 42 : 52)
+                    }
+                    .ignoresSafeArea(edges: .top)
+                } else if arguments.contains("-HoneyFlowPreview") {
+                    HoneyFlowMeter(progress: GameConfig.honeyFlowThreshold,
+                                   isActive: true,
+                                   burstID: 1,
+                                   theme: CharacterCatalog.current(isPremium: false),
+                                   isPad: AppLayout.isPad)
+                        .frame(maxWidth: 440)
+                        .padding(.horizontal, 24)
+                        .padding(.top, 126)
+                }
+            }
             .ignoresSafeArea()
     }
 }

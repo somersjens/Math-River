@@ -175,12 +175,12 @@ struct PremiumView: View {
             badge(text: L(key: "premium.availableFromStart"), icon: nil)
         } else if let cards = CharacterUnlockStore.requirement(for: animal.id) {
             if totalCards >= cards {
-                badge(text: L("premium.earnedCards \(cards)"),
+                badge(text: L("You’ve earned \(cards) honey"),
                       icon: "checkmark.circle.fill")
             } else if premium.isPremium {
                 badge(text: L(key: "premium.unlockedWithPremium"), icon: "crown.fill")
             } else {
-                badge(text: L("premium.availableAt \(cards)"),
+                badge(text: L("Available from \(cards) honey"),
                       icon: Currency.icon)
             }
         } else {
@@ -230,7 +230,7 @@ struct PremiumView: View {
 
     private var cardCharacterCard: some View {
         characterGroup(
-            title: L(key: "premium.unlockWithCards"),
+            title: L(key: "Unlock with honey"),
             icon: Currency.icon,
             animals: CharacterCatalog.cardCharacters
         )

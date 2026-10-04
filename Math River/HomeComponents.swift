@@ -292,7 +292,13 @@ struct AdaptiveLevelGrid: Layout {
         self.cardHeight = cardHeight
     }
 
-    private func metrics(for width: CGFloat, itemCount: Int) -> (columns: Int, cardWidth: CGFloat) {
+    private func metrics(for proposedWidth: CGFloat, itemCount: Int) -> (columns: Int, cardWidth: CGFloat) {
+        let fallbackColumns = min(max(1, itemCount), maximumColumns)
+        let fallbackWidth = minimumCardWidth * CGFloat(fallbackColumns)
+            + spacing * CGFloat(max(0, fallbackColumns - 1))
+        let width = proposedWidth.isFinite && proposedWidth > 0
+            ? proposedWidth
+            : fallbackWidth
         let possibleColumns = max(1, Int((width + spacing) / (minimumCardWidth + spacing)))
         let columns = min(max(1, itemCount), possibleColumns, maximumColumns)
         let cardWidth = (width - CGFloat(columns - 1) * spacing) / CGFloat(columns)
@@ -306,7 +312,10 @@ struct AdaptiveLevelGrid: Layout {
         let fallbackColumns = min(subviews.count, maximumColumns)
         let fallbackWidth = minimumCardWidth * CGFloat(fallbackColumns)
             + spacing * CGFloat(fallbackColumns - 1)
-        let width = proposal.width ?? fallbackWidth
+        let proposedWidth = proposal.width ?? fallbackWidth
+        let width = proposedWidth.isFinite && proposedWidth > 0
+            ? proposedWidth
+            : fallbackWidth
         let columns = metrics(for: width, itemCount: subviews.count).columns
         let rows = Int(ceil(Double(subviews.count) / Double(columns)))
         return CGSize(width: width, height: CGFloat(rows) * cardHeight + CGFloat(rows - 1) * spacing)
@@ -663,7 +672,7 @@ struct LevelCardView: View {
                            delay: Self.scoreCountDelay,
                            duration: Self.scoreCountDuration)
                 .font(.system(size: 12 * cardScale, weight: .bold))
-            CurrencyIcon(size: 9 * cardScale)
+            MasteryIcon(size: 9 * cardScale)
                 // The launch anchor is read from the unscaled layout frame, so
                 // the flying card starts exactly overlapping this glyph.
                 .background {
@@ -771,7 +780,7 @@ struct LevelCardView: View {
                                    delay: Self.scoreCountDelay,
                                    duration: Self.scoreCountDuration)
                         .font(.system(size: 12 * cardScale, weight: .bold))
-                    CurrencyIcon(size: 9 * cardScale)
+                    MasteryIcon(size: 9 * cardScale)
                         // Once the max card has been revealed, the flight must
                         // still start on this exact bubble. Without an anchor
                         // here the standard card's disappearing glyph leaves
@@ -1298,7 +1307,7 @@ struct AlternatingCardSummary: View {
                 // and goes would make it unfindable for VoiceOver.
                 .accessibilityElement(children: .ignore)
                 .accessibilityIdentifier("card-total")
-                .accessibilityLabel(Text(L("game.bubblesCollected \(totalTo)")))
+                .accessibilityLabel(Text(L("\(totalTo) honey collected")))
 
             if let displayedPrompt {
                 promptLabel(displayedPrompt, contentScale: contentScale)
@@ -1442,7 +1451,10 @@ struct AlternatingCardSummary: View {
 /// lives in the shared "home" space, so it starts exactly on the level card's
 /// glyph and lands exactly on the header's.
 struct CardFlight: Identifiable {
+    enum Kind { case mastery, honey }
+
     let id = UUID()
+    let kind: Kind
     let celebrationID: UUID
     let source: CGRect
     let destination: CGRect
@@ -1473,7 +1485,12 @@ struct CardFlightView: View {
                 + (flight.destinationPointSize - flight.sourcePointSize) * eased
             // Merge softly into the header glyph over the last stretch.
             let fade = t > 0.88 ? max(0, 1 - (t - 0.88) / 0.12) : 1
-            CurrencyIcon(size: size)
+            Group {
+                switch flight.kind {
+                case .mastery: MasteryIcon(size: size)
+                case .honey: CurrencyIcon(size: size)
+                }
+            }
                 .foregroundStyle(flight.color)
                 .shadow(color: flight.color.opacity(0.35), radius: 3, y: 1)
                 .opacity(fade)

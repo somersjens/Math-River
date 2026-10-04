@@ -67,23 +67,26 @@ nonisolated public enum GameConfig {
 
     // MARK: Session
 
-    /// A session ends when the board's own target is reached (`LevelBoard
-    /// .maximum`) or the lives run out — never on a flat round count, which is
-    /// what used to stop a 50-bubble board at around 24.
-    ///
-    /// Every round pays at least one bubble, so a board can always be filled
-    /// within `maximum` rounds. This is the ceiling across every board, used
-    /// only to sanity-check a stored session.
-    public static var maximumRoundCeiling: Int { supermixLevelMaximum }
+    /// Every exercise uses the same short, predictable run. Order, Random and
+    /// Mixed change the question sequence, never how long the child has to play.
+    public static let sessionQuestionCount = 12
+    public static var maximumRoundCeiling: Int { sessionQuestionCount }
 
-    /// Cards awarded for a correct answer on a normal card.
+    /// One correct answer advances the session score by one and also earns one
+    /// unit of honey when the run is completed.
     public static let normalCardReward = 1
+    public static let honeyPerCorrectAnswer = 1
 
     // MARK: Bonuses
 
-    /// Retired King Crab leftovers. Math River has no streak speed boost and
-    /// no 2× crab: every correct pot pays `normalCardReward` at the same pace.
-    public static let streakThreshold = 5
+    /// Honey Flow rewards three consecutive correct answers without changing
+    /// the physical or reading speed of the next answer phase.
+    public static let honeyFlowThreshold = 3
+    public static let honeyFlowBonusHoney = 2
+    public static let honeyFlowTrailDuration = 2.6
+
+    /// Compatibility values for the retired King Crab boost wiring.
+    public static let streakThreshold = honeyFlowThreshold
     public static let streakMultiplier = 2
     public static let streakSpeedMultiplier = 1.0
     public static let streakWrongAnswerCostHalves = 1
@@ -101,7 +104,10 @@ nonisolated public enum GameConfig {
     public static let answerRevealDuration = 0.18
     /// How long correct/wrong feedback stays on screen before the next round.
     public static let correctFeedbackDuration = 0.32
-    public static let wrongFeedbackDuration = 0.55
+    /// A wrong answer writes out the complete solved equation and may be read
+    /// aloud. Keep it visible long enough to understand, without holding up a
+    /// correct answer or changing the approach speed.
+    public static let wrongFeedbackDuration = 1.15
     /// Gap between feedback ending and the next round's closed cards appearing.
     public static let roundTransitionDuration = 0.12
 
@@ -166,31 +172,39 @@ nonisolated public enum GameConfig {
     /// Quiet water after the last pot of a group has gone by, before the next
     /// sum appears.
     public static let riverGroupGap = 1.25
-    /// Points taken for sailing into a wrong answer stone. Never below zero.
-    public static let riverWrongAnswerPenalty = 1
+    /// A wrong answer earns no point, but never removes a correct answer that
+    /// was already earned. Mastery therefore always means “questions correct”.
+    public static let riverWrongAnswerPenalty = 0
 
     // MARK: Level progress
 
-    /// What a full score is worth depends on the chosen exercise. Supermix is
-    /// intentionally the only route that goes all the way to 50 bubbles.
-    public static let orderLevelMaximum = 20
-    public static let randomLevelMaximum = 30
-    public static let mixedLevelMaximum = 40
-    public static let supermixLevelMaximum = 50
+    /// Kept solely to translate version-4 personal bests to the new twelve-
+    /// question mastery scale. New gameplay never uses these as run lengths.
+    public static let legacyOrderLevelMaximum = 20
+    public static let legacyRandomLevelMaximum = 30
+    public static let legacyMixedLevelMaximum = 40
+    public static let legacySupermixLevelMaximum = 50
 
-    /// Default used by views before they receive their concrete board.
-    public static let levelMaximum = mixedLevelMaximum
+    /// Compatibility names for code and QA that asks for the largest possible
+    /// board. All exercise forms now have the same length.
+    public static let orderLevelMaximum = sessionQuestionCount
+    public static let randomLevelMaximum = sessionQuestionCount
+    public static let mixedLevelMaximum = sessionQuestionCount
+    public static let supermixLevelMaximum = sessionQuestionCount
+    public static let levelMaximum = sessionQuestionCount
 
     /// Ceiling on the "reached the maximum ×N" tally, so a long-lived save
     /// cannot grow the badge without bound.
     public static let maximumCompletionCount = 100
 
-    /// The three progress dots fill at these shares of `levelCompletionCards`,
-    /// so the card art follows the economy instead of hardcoded scores.
-    public static let levelTierShares = [0.01, 0.4, 0.75]
+    /// Bronze, silver and gold mastery: 8, 10 and 12 correct answers.
+    public static let masteryThresholds = [8, 10, 12]
+    public static let levelTierShares = masteryThresholds.map {
+        Double($0) / Double(sessionQuestionCount)
+    }
 
     // MARK: Storage
 
     /// Bumped whenever the persisted shape changes; drives migration.
-    public static let storageVersion = 4
+    public static let storageVersion = 5
 }

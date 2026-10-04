@@ -3,7 +3,7 @@
 //  Math Memory
 //
 //  The card shown before a level starts: what kind of sums it holds, which
-//  levels the questions are drawn from, and how many cards can be collected.
+//  levels the questions are drawn from, and how long the fixed session is.
 //  Restored from the original start screen; only the settings it offers have
 //  changed, since lives and the answer helper are no longer optional here.
 //
@@ -50,8 +50,8 @@ enum LevelIntro {
         // order button — and picking the right card out of the ones on offer.
         let levelLine = modeLine(for: board)
 
-        // Line three: what there is to collect here.
-        let cardsLine = L("levelIntro.cardsBullet \(board.maximum)")
+        // Line three: every exercise form now promises the same session length.
+        let cardsLine = L("\(board.maximum) questions. Every correct answer earns honey.")
 
         return (title, [topicLine, levelLine, cardsLine])
     }
@@ -85,6 +85,22 @@ enum LevelIntro {
     /// The glyph shown beside the first line.
     static func symbol(for level: MathLevel) -> String {
         level.topic.symbolName
+    }
+}
+
+private extension View {
+    func introCardSurface(theme: AnimalCharacter) -> some View {
+        self
+            // Explicit white: system backgrounds follow Dark Mode, while this
+            // game's ink colours are authored for a light paper surface.
+            .background(Color.white,
+                        in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .stroke(theme.deepColor.opacity(0.14), lineWidth: 1)
+            }
+            .shadow(color: theme.deepColor.opacity(0.28), radius: 18, y: 8)
     }
 }
 
@@ -134,7 +150,7 @@ struct LevelIntroCard: View {
         let features = [
             IntroFeature(icon: LevelIntro.symbol(for: level), text: info.bullets[0]),
             IntroFeature(number: level.cardNumber, text: info.bullets[1]),
-            IntroFeature(icon: Currency.icon, text: info.bullets[2])
+            IntroFeature(icon: "checkmark.circle.fill", text: info.bullets[2])
         ]
 
         return ZStack {
@@ -142,80 +158,130 @@ struct LevelIntroCard: View {
 
             GeometryReader { proxy in
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 14) {
-                        HStack(alignment: .top, spacing: 14) {
-                            characterPortrait
-                            // Title on top, its two audio switches directly
-                            // beneath it, side by side.
-                            VStack(alignment: .leading, spacing: 0) {
-                                Text(info.title)
-                                    .font(.system(size: 33 * textScale * titleScale,
-                                                  weight: .heavy, design: .rounded))
-                                    .foregroundStyle(theme.deepColor)
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.5)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                Spacer(minLength: 0)
-                                audioControlRow
-                            }
-                            .frame(height: portraitSize)
-                        }
-
-                        DashedDivider(color: theme.color.opacity(0.45))
-                            .padding(.vertical, 4)
-
-                        ForEach(features) { feature in
-                            featureCard(feature)
-                        }
-
-                        VStack(spacing: 10) {
-                            Button(action: onStart) {
-                                Text(startTitleKey)
-                                    .font(.system(size: 17 * actionScale, weight: .heavy))
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 15 * actionScale)
-                                    .foregroundStyle(.white)
-                                    .background(theme.deepColor,
-                                                in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityIdentifier("intro-start")
-
-                            Button(action: onExit) {
-                                Text("game.intro.backToMainMenu")
-                                    .font(.system(size: 17 * actionScale, weight: .heavy))
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 15 * actionScale)
-                                    .foregroundStyle(theme.deepColor)
-                                    .background(.white.opacity(0.7),
-                                                in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                                    .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                        .stroke(theme.deepColor.opacity(0.14), lineWidth: 1))
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityIdentifier("intro-back")
-                        }
-
-                        if isContinuation, !isTutorialArmed {
-                            pausedMessage
+                    Group {
+                        if AppLayout.isLandscape(proxy.size) {
+                            landscapeCard(info: info, features: features)
+                        } else {
+                            portraitCard(info: info, features: features)
                         }
                     }
-                    .padding(28 * scale)
-                    .padding(.top, 4)
-                    .frame(maxWidth: 420 * scale)
-                    // Explicit white: `.background` follows Dark Mode and the
-                    // deep-purple copy on this card becomes unreadable.
-                    .background(Color.white, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
-                    .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous)
-                        .stroke(theme.deepColor.opacity(0.14), lineWidth: 1))
-                    .shadow(color: theme.deepColor.opacity(0.28), radius: 18, y: 8)
-                    .padding()
+                    .padding(isPad ? 22 : 12)
                     .frame(maxWidth: .infinity)
                     .frame(minHeight: proxy.size.height, alignment: .center)
                 }
                 .scrollBounceBehavior(.basedOnSize)
             }
+        }
+    }
+
+    private func portraitCard(info: (title: String, bullets: [String]),
+                              features: [IntroFeature]) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            introHeader(title: info.title, compact: false)
+
+            DashedDivider(color: theme.color.opacity(0.45))
+                .padding(.vertical, 4)
+
+            ForEach(features) { feature in
+                featureCard(feature)
+            }
+
+            actionButtons
+
+            if isContinuation, !isTutorialArmed {
+                pausedMessage
+            }
+        }
+        .padding(28 * scale)
+        .padding(.top, 4)
+        .frame(maxWidth: 420 * scale)
+        .introCardSurface(theme: theme)
+    }
+
+    /// The landscape card uses the spare horizontal room for the explanatory
+    /// tiles. On compact iPhones this keeps every action above the home
+    /// indicator instead of turning the opening screen into a tall scroll.
+    private func landscapeCard(info: (title: String, bullets: [String]),
+                               features: [IntroFeature]) -> some View {
+        HStack(alignment: .center, spacing: isPad ? 28 : 18) {
+            VStack(alignment: .leading, spacing: isPad ? 16 : 12) {
+                introHeader(title: info.title, compact: true)
+
+                DashedDivider(color: theme.color.opacity(0.45))
+
+                actionButtons
+
+                if isContinuation, !isTutorialArmed {
+                    pausedMessage
+                }
+            }
+            .frame(maxWidth: isPad ? 340 : 260)
+
+            Rectangle()
+                .fill(theme.deepColor.opacity(0.12))
+                .frame(width: 1)
+
+            VStack(spacing: isPad ? 13 : 9) {
+                ForEach(features) { feature in
+                    featureCard(feature)
+                }
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .padding(isPad ? 30 : 18)
+        .frame(maxWidth: isPad ? 920 : 760)
+        .introCardSurface(theme: theme)
+    }
+
+    private func introHeader(title: String, compact: Bool) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            characterPortrait
+            VStack(alignment: .leading, spacing: 0) {
+                Text(title)
+                    .font(.system(size: (compact ? 26 : 33) * textScale * titleScale,
+                                  weight: .heavy, design: .rounded))
+                    .foregroundStyle(theme.deepColor)
+                    .lineLimit(compact ? 2 : 1)
+                    .minimumScaleFactor(0.5)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Spacer(minLength: 4)
+                audioControlRow
+            }
+            .frame(height: portraitSize)
+        }
+    }
+
+    private var actionButtons: some View {
+        VStack(spacing: isPad ? 12 : 9) {
+            Button(action: onStart) {
+                Text(startTitleKey)
+                    .font(.system(size: 17 * actionScale, weight: .heavy))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 13 * actionScale)
+                    .foregroundStyle(.white)
+                    .background(theme.deepColor,
+                                in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("intro-start")
+
+            Button(action: onExit) {
+                Text("game.intro.backToMainMenu")
+                    .font(.system(size: 17 * actionScale, weight: .heavy))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 13 * actionScale)
+                    .foregroundStyle(theme.deepColor)
+                    .background(.white.opacity(0.7),
+                                in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(theme.deepColor.opacity(0.14), lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("intro-back")
         }
     }
 

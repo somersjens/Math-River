@@ -668,6 +668,12 @@ final class AppAudio: NSObject, ObservableObject {
     // Answers.
     func playCorrect()          { playEffect("correct") }
     func playWrong()            { playEffect("wrong") }
+    /// Gameplay beats deliberately use different timbres from one another.
+    /// Reusing the already preloaded, short effects keeps them instantaneous
+    /// without adding more decode work to the frame loop.
+    func playSkipped()          { playEffect("cardFlip") }
+    func playCombo()            { playEffect("doubleScore") }
+    func playLanding()          { playEffect("doubleCard") }
     func playCardFlip()         { playEffect("cardFlip") }         // a card turns over
     func playCardReveal()       { playEffect("cardReveal") }       // the question becomes visible
     func playDoubleCardAppear() { playEffect("doubleCard") }       // the thick special card
@@ -749,6 +755,24 @@ final class AppAudio: NSObject, ObservableObject {
         guard let text = Self.spokenText(for: prompt, languageCode: languageCode) else { return }
         guard !text.isEmpty else { return }
 
+        queueSpeech(text, languageCode: languageCode)
+    }
+
+    /// Reads the useful correction, not the rejected value: “Almost! Seven
+    /// times eight is fifty-six.” It follows the same opt-in speech setting as
+    /// spoken questions and naturally falls back to silence without a voice.
+    func speakWrongAnswer(_ solvedEquation: String) {
+        guard spokenSumsEnabled, isGameplayActive else { return }
+        let languageCode = LanguageManager.shared.effective.code
+        guard let equation = Self.spokenText(for: solvedEquation,
+                                             languageCode: languageCode),
+              !equation.isEmpty else { return }
+        let format = L(key: "Almost! %@")
+        queueSpeech(String(format: format, locale: LanguageManager.shared.locale, equation),
+                    languageCode: languageCode)
+    }
+
+    private func queueSpeech(_ text: String, languageCode: String) {
         speechRequestToken += 1
         let token = speechRequestToken
         let request = PendingSpeech(token: token, text: text,

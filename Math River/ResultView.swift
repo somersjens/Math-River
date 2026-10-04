@@ -28,9 +28,12 @@ struct ResultView: View {
     private var textScale: CGFloat { isPad ? 1.296 : 1 }
 
     private var maximum: Int { board.maximum }
-    /// The level's score tops out at its maximum, exactly as the menu stores
-    /// it; cards beyond that still count toward the player's grand total.
+    /// The score is simply the number of questions answered correctly.
     private var levelScore: Int { min(result.cardsEarned, maximum) }
+    private var bestScore: Int { min(max(result.personalBest, levelScore), maximum) }
+    private var masteryStars: Int {
+        GameConfig.masteryThresholds.filter { bestScore >= $0 }.count
+    }
     private var showsNewBest: Bool { result.isNewPersonalBest && result.cardsEarned > 0 }
 
     private var isCompleted: Bool { result.reason == .roundsCompleted }
@@ -39,9 +42,14 @@ struct ResultView: View {
     /// the player runs out of lives, every three bubbles advance to the next
     /// encouraging message, capped at the tenth message.
     private var encouragement: String {
-        guard !isCompleted else { return L(key: "game.end.completionSubtitle") }
+        guard !isCompleted else { return L(key: "Great run — your honey is safely stored.") }
         let index = min(max(levelScore, 0) / 3, 9)
         return L(key: "game.encouragement.\(index)")
+    }
+
+    private var recommendation: String {
+        if bestScore >= maximum { return L(key: "Ready for the next level!") }
+        return L("Practice \(LevelIntro.info(for: board).title) one more time.")
     }
 
     private var titleKey: LocalizedStringKey {
@@ -61,20 +69,19 @@ struct ResultView: View {
 
             GeometryReader { proxy in
                 ScrollView {
-                    card
-                        .padding(26 * scale)
-                        .frame(maxWidth: 400 * scale)
-                        .background(
-                            LinearGradient(colors: [character.skyColor, .white, character.tintColor],
-                                           startPoint: .top, endPoint: .bottom),
-                            in: RoundedRectangle(cornerRadius: 28, style: .continuous)
-                        )
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                                .stroke(.white.opacity(0.82), lineWidth: 1)
+                    Group {
+                        if AppLayout.isLandscape(proxy.size) {
+                            landscapeCard
+                                .padding(isPad ? 28 : 18)
+                                .frame(maxWidth: isPad ? 920 : 800)
+                        } else {
+                            card
+                                .padding(26 * scale)
+                                .frame(maxWidth: 400 * scale)
                         }
-                        .shadow(color: .black.opacity(0.22), radius: 24, y: 12)
-                        .padding(24)
+                    }
+                        .resultCardSurface(character: character)
+                        .padding(isPad ? 22 : 12)
                         .frame(maxWidth: .infinity)
                         .frame(minHeight: proxy.size.height, alignment: .center)
                 }
@@ -120,6 +127,52 @@ struct ResultView: View {
                 .accessibilityHidden(true)
                 .padding(.bottom, 18 * scale)
 
+            titleBlock
+
+            scoreSummary
+                .padding(.top, 22 * scale)
+
+            if !result.unlockedCharacterIDs.isEmpty {
+                unlockedRow
+                    .padding(.top, 20 * scale)
+            }
+
+            buttons
+                .padding(.top, 24 * scale)
+        }
+    }
+
+    /// End-of-run information is split across the wide screen. The celebratory
+    /// art and next actions stay together on the leading side; the score and
+    /// recommendation remain readable at full size on the trailing side.
+    private var landscapeCard: some View {
+        HStack(alignment: .center, spacing: isPad ? 30 : 20) {
+            VStack(spacing: 0) {
+                resultIllustration
+                    .accessibilityHidden(true)
+                    .padding(.bottom, isPad ? 14 : 8)
+                titleBlock
+                Spacer(minLength: isPad ? 18 : 10)
+                buttons
+            }
+            .frame(maxWidth: isPad ? 340 : 270)
+
+            Rectangle()
+                .fill(character.deepColor.opacity(0.12))
+                .frame(width: 1)
+
+            VStack(spacing: isPad ? 18 : 12) {
+                scoreSummary
+                if !result.unlockedCharacterIDs.isEmpty {
+                    unlockedRow
+                }
+            }
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    private var titleBlock: some View {
+        VStack(spacing: 10 * scale) {
             if isCompleted {
                 completionTitle
                     .frame(maxWidth: .infinity)
@@ -138,19 +191,9 @@ struct ResultView: View {
                               weight: isCompleted ? .medium : .semibold))
                 .foregroundStyle(character.deepColor.opacity(0.64))
                 .multilineTextAlignment(.center)
-                .padding(.top, 10 * scale)
+                .lineLimit(2)
+                .minimumScaleFactor(0.82)
                 .frame(minHeight: 30 * scale)
-
-            scoreCapsule
-                .padding(.top, 22 * scale)
-
-            if !result.unlockedCharacterIDs.isEmpty {
-                unlockedRow
-                    .padding(.top, 20 * scale)
-            }
-
-            buttons
-                .padding(.top, 24 * scale)
         }
     }
 
@@ -276,10 +319,62 @@ struct ResultView: View {
         .padding(.horizontal, 2 * scale)
     }
 
+    private var scoreSummary: some View {
+        VStack(spacing: 12 * scale) {
+            scoreCapsule
+
+            HStack(spacing: 10 * scale) {
+                resultMetric(title: L(key: "game.highScore"),
+                             value: "\(LN(bestScore)) / \(LN(maximum))",
+                             usesHoney: false)
+                resultMetric(title: L(key: "Honey"),
+                             value: "+\(LN(result.honeyEarned))",
+                             usesHoney: true)
+            }
+
+            if result.honeyFlowBonusHoney + result.routeBonusHoney > 0 {
+                HStack(spacing: 7 * scale) {
+                    Image(systemName: "bolt.fill")
+                        .foregroundStyle(.yellow)
+                    Text(verbatim: L("Bonus honey +\(result.honeyFlowBonusHoney + result.routeBonusHoney)"))
+                    if result.honeyFlowActivations > 0 {
+                        Text(verbatim: "· \(LN(result.honeyFlowActivations))× " + L(key: "Honey Flow"))
+                            .opacity(0.72)
+                    }
+                }
+                .font(.system(size: 12 * textScale, weight: .bold, design: .rounded))
+                .foregroundStyle(character.deepColor)
+            }
+
+            HStack(spacing: 7 * scale) {
+                Text("Mastery")
+                    .font(.system(size: 13 * textScale, weight: .bold, design: .rounded))
+                ForEach(0..<GameConfig.masteryThresholds.count, id: \.self) { index in
+                    Image(systemName: index < masteryStars ? "star.fill" : "star")
+                        .foregroundStyle(index < masteryStars ? Color.yellow : character.color.opacity(0.34))
+                }
+            }
+            .foregroundStyle(character.deepColor)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(L("\(masteryStars) of \(GameConfig.masteryThresholds.count) mastery stars")))
+
+            HStack(alignment: .top, spacing: 8 * scale) {
+                Image(systemName: "lightbulb.fill")
+                    .foregroundStyle(character.color)
+                Text(verbatim: recommendation)
+                    .multilineTextAlignment(.leading)
+            }
+            .font(.system(size: 14 * textScale, weight: .semibold, design: .rounded))
+            .foregroundStyle(character.deepColor.opacity(0.78))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12 * scale)
+            .background(.white.opacity(0.55), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+    }
+
     private var scoreCapsule: some View {
-        Text(verbatim: "\(LN(levelScore)) / \(LN(maximum))")
+        Text(verbatim: L("\(levelScore) of \(maximum) correct"))
             // Keep "x / y" from flipping around.
-            .environment(\.layoutDirection, .leftToRight)
             .font(.system(size: 30 * textScale, weight: .heavy, design: .rounded))
             .foregroundStyle(character.color)
             .padding(.horizontal, 27 * scale)
@@ -304,11 +399,36 @@ struct ResultView: View {
             .accessibilityLabel(Text(L("game.accessibility.scoreOutOf \(levelScore) \(maximum)")))
     }
 
+    private func resultMetric(title: String, value: String, usesHoney: Bool) -> some View {
+        VStack(spacing: 5 * scale) {
+            HStack(spacing: 5 * scale) {
+                if usesHoney {
+                    CurrencyIcon(size: 14 * textScale)
+                } else {
+                    MasteryIcon(size: 14 * textScale)
+                }
+                Text(verbatim: title)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            .font(.system(size: 12 * textScale, weight: .bold, design: .rounded))
+            .foregroundStyle(character.deepColor.opacity(0.66))
+
+            Text(verbatim: value)
+                .environment(\.layoutDirection, .leftToRight)
+                .font(.system(size: 18 * textScale, weight: .heavy, design: .rounded))
+                .foregroundStyle(character.deepColor)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 9 * scale)
+        .background(character.tintColor.opacity(0.7), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
     private var newBestBadge: some View {
         HStack(spacing: 4) {
             Text("game.highScore")
                 .lineLimit(1)
-            CurrencyIcon(size: 13 * textScale)
+            MasteryIcon(size: 13 * textScale)
         }
         // The badge is an overlay pinned to the score capsule's width, so a long
         // translation would wrap; fixedSize lets it grow on one line instead.
@@ -393,6 +513,23 @@ struct ResultView: View {
             .buttonStyle(.plain)
             .accessibilityIdentifier("back-to-menu")
         }
+    }
+}
+
+private extension View {
+    func resultCardSurface(character: AnimalCharacter) -> some View {
+        self
+            .background(
+                LinearGradient(colors: [character.skyColor, .white, character.tintColor],
+                               startPoint: .top, endPoint: .bottom),
+                in: RoundedRectangle(cornerRadius: 28, style: .continuous)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .stroke(.white.opacity(0.82), lineWidth: 1)
+            }
+            .shadow(color: .black.opacity(0.22), radius: 24, y: 12)
     }
 }
 
@@ -485,3 +622,43 @@ private struct FallingBubble: View {
         }
     }
 }
+
+#if DEBUG
+enum Phase3ResultPreviewMode {
+    static var isActive: Bool {
+        ProcessInfo.processInfo.arguments.contains("-Phase3ResultPreview")
+    }
+}
+
+/// Deterministic visual-QA entry point for the phase-3 result hierarchy.
+struct Phase3ResultPreview: View {
+    private let board = LevelBoard(level: MathLevel(topic: .tables, index: 8), mode: .mixed)
+    private let result: SessionResult = {
+        var result = SessionResult()
+        result.correctAnswers = 9
+        result.wrongAnswers = 3
+        result.cardsEarned = 9
+        result.honeyEarned = 9
+        result.honeyFlowActivations = 2
+        result.honeyFlowBonusHoney = 4
+        result.routeBonusHoney = 1
+        result.honeyEarned = 14
+        result.personalBest = 10
+        result.reason = .roundsCompleted
+        return result
+    }()
+
+    var body: some View {
+        ZStack {
+            LinearGradient(colors: [.yellow.opacity(0.5), .orange.opacity(0.24)],
+                           startPoint: .top, endPoint: .bottom)
+                .ignoresSafeArea()
+            ResultView(result: result,
+                       board: board,
+                       character: CharacterCatalog.character(id: "bear"),
+                       onPlayAgain: {},
+                       onExit: {})
+        }
+    }
+}
+#endif

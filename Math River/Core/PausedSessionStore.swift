@@ -30,6 +30,11 @@ nonisolated public struct PausedSession: Codable, Equatable, Sendable {
     /// Optional so sessions written before the in-level streak feature remain
     /// decodable and simply resume without an active streak/aura.
     public let correctStreak: Int?
+    /// Phase-4 fields are optional so an older paused run resumes with an empty
+    /// Honey Flow bonus instead of becoming undecodable.
+    public let honeyFlowActivations: Int?
+    public let honeyFlowBonusHoney: Int?
+    public let routeBonusHoney: Int?
     public let hasBonusFishPower: Bool?
     /// Optional for compatibility with sessions saved before the comeback
     /// crab. The names are the ones these fields were first written under; they
@@ -50,6 +55,9 @@ nonisolated public struct PausedSession: Codable, Equatable, Sendable {
                 bonusCards: Int,
                 flamethrowersUsed: Int,
                 correctStreak: Int? = nil,
+                honeyFlowActivations: Int? = nil,
+                honeyFlowBonusHoney: Int? = nil,
+                routeBonusHoney: Int? = nil,
                 hasBonusFishPower: Bool? = nil,
                 heartFishProgress: Int? = nil,
                 heartFishTarget: Int? = nil,
@@ -65,6 +73,9 @@ nonisolated public struct PausedSession: Codable, Equatable, Sendable {
         self.bonusCards = bonusCards
         self.flamethrowersUsed = flamethrowersUsed
         self.correctStreak = correctStreak
+        self.honeyFlowActivations = honeyFlowActivations
+        self.honeyFlowBonusHoney = honeyFlowBonusHoney
+        self.routeBonusHoney = routeBonusHoney
         self.hasBonusFishPower = hasBonusFishPower
         self.heartFishProgress = heartFishProgress
         self.heartFishTarget = heartFishTarget
@@ -83,6 +94,9 @@ nonisolated public struct PausedSession: Codable, Equatable, Sendable {
             && correctAnswers >= 0
             && wrongAnswers >= 0
             && (correctStreak ?? 0) >= 0
+            && (honeyFlowActivations ?? 0) >= 0
+            && (honeyFlowBonusHoney ?? 0) >= 0
+            && (routeBonusHoney ?? 0) >= 0
             && (heartFishProgress ?? 0) >= 0
             && (heartFishTarget ?? GameConfig.lifeCrabCorrectAnswers) >= 1
     }

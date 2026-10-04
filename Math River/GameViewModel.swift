@@ -80,6 +80,10 @@ final class GameViewModel: ObservableObject {
     /// mistake is never silent. Nil whenever there is nothing to own up to.
     @Published private(set) var missedSum: MissedSum?
     @Published private(set) var answerFeedback: RoundAnswerFeedback?
+    @Published private(set) var honeyFlowProgress = 0
+    @Published private(set) var isHoneyFlowActive = false
+    @Published private(set) var honeyFlowBurstID = 0
+    @Published private(set) var routeHoneyPickupID = 0
     /// The same note while the sum it belongs to is still standing: it is not
     /// shown yet, because its answer is the one thing that must not be given
     /// away in the moment between the mistake and the next question.
@@ -213,6 +217,7 @@ final class GameViewModel: ObservableObject {
         preparationTask = nil
         pendingScheduledWork = nil
         pendingScoreRewards.removeAll()
+        isHoneyFlowActive = false
     }
 
     /// Temporarily stops an active run without ending it. The snapshot also
@@ -225,6 +230,7 @@ final class GameViewModel: ObservableObject {
         PlaytimeTracker.shared.challengeEnded()
         AppAudio.shared.setGameplayActive(false, questionText: nil)
         AppAudio.shared.setGameplayRate(1)
+        isHoneyFlowActive = false
     }
 
     /// Continues the in-memory run after its pause card. No round is rebuilt,
@@ -283,6 +289,7 @@ final class GameViewModel: ObservableObject {
         isPaused = false
         pendingScheduledWork = nil
         pendingScoreRewards.removeAll()
+        isHoneyFlowActive = false
         hasBonusFishPower = false
         missedSum = nil
         pendingMissedSum = nil
@@ -313,6 +320,7 @@ final class GameViewModel: ObservableObject {
         isPaused = false
         pendingScheduledWork = nil
         pendingScoreRewards.removeAll()
+        isHoneyFlowActive = false
         hasBonusFishPower = false
         missedSum = nil
         pendingMissedSum = nil
@@ -371,7 +379,7 @@ final class GameViewModel: ObservableObject {
         let token = generation
         let delay: Double
         switch outcome {
-        case .correct(let cardsEarned, let usedBonusFish, _):
+        case .correct(let cardsEarned, let usedBonusFish, let startedHoneyFlow):
             if let round = engine.round {
                 answerFeedback = RoundAnswerFeedback(roundID: round.id,
                                                      text: round.question.solved,
@@ -379,24 +387,27 @@ final class GameViewModel: ObservableObject {
             }
             pendingScoreRewards.append(cardsEarned)
             sync()
-            onAnswerResolved?(true, false)
+            onAnswerResolved?(true, startedHoneyFlow)
             AppAudio.shared.playCorrect()
+            if startedHoneyFlow { activateHoneyFlow(token: token) }
             if usedBonusFish {
                 hasBonusFishPower = false
                 AppAudio.shared.playDoubleScore()
             }
-            haptic(.success)
+            haptic(startedHoneyFlow ? .combo : .success)
             delay = GameConfig.nextRoundDelay.correct
         case .wrong(_, let lostHalfLife):
+            isHoneyFlowActive = false
             if let round = engine.round,
                let selectedOption,
                !selectedOption.isCorrect {
                 let feedback = RoundAnswerFeedback(
                     roundID: round.id,
-                    text: round.question.rejected(with: selectedOption.text),
+                    text: round.question.solved,
                     kind: .wrong
                 )
                 answerFeedback = feedback
+                AppAudio.shared.speakWrongAnswer(round.question.solved)
                 schedule(after: GameConfig.wrongFeedbackDuration,
                          token: token) { [weak self] in
                     guard self?.answerFeedback == feedback else { return }
@@ -448,12 +459,38 @@ final class GameViewModel: ObservableObject {
         return true
     }
 
+    private func activateHoneyFlow(token: Int) {
+        honeyFlowBurstID &+= 1
+        let burstID = honeyFlowBurstID
+        isHoneyFlowActive = true
+        AppAudio.shared.playCombo()
+        schedule(after: GameConfig.honeyFlowTrailDuration, token: token) { [weak self] in
+            guard let self, self.honeyFlowBurstID == burstID else { return }
+            self.isHoneyFlowActive = false
+        }
+    }
+
+    /// Called once when the authored route commits to a split branch.
+    func collectRouteHoney() {
+        guard engine.collectRouteHoney() else { return }
+        routeHoneyPickupID &+= 1
+        AppAudio.shared.playMenuCardTotal()
+        haptic(.light)
+        sync()
+    }
+
     /// The last answer stone of this sum has gone by. Remaining stones were allowed
     /// to drift off naturally; now the next sum may appear.
     func completeWave() {
         let token = generation
-        if engine.state == .answering, case .wrong = engine.lastOutcome {
-            noteMissedSum()
+        if engine.state == .answering {
+            if case .wrong = engine.lastOutcome {
+                noteMissedSum()
+            } else if engine.lastOutcome == nil {
+                AppAudio.shared.playSkipped()
+                haptic(.skip)
+            }
+            isHoneyFlowActive = false
         }
         let previousRoundID = engine.round?.id
         _ = engine.completeWave()
@@ -465,6 +502,13 @@ final class GameViewModel: ObservableObject {
         }
         guard generation == token else { return }
         sync()
+    }
+
+    /// Called on the exact frame the ring touches down after a jump.
+    func landed() {
+        guard state != .intro, !isPaused, !isGameOver else { return }
+        AppAudio.shared.playLanding()
+        haptic(.landing)
     }
 
     /// Writes down the sum that was just lost, so the next one can carry it.
@@ -585,35 +629,43 @@ final class GameViewModel: ObservableObject {
         }
 
         let store = Progress.store
-        let previousTotal = store.totalCards
+        let previousTotal = store.totalHoney
         let board = request.board
-        // Only the improvement on this board joins the player's total. A board
-        // can therefore contribute its maximum once, even though subsequent
-        // maximum runs still count toward the separate ×N completion badge.
         let previousBest = store.bestScore(board)
-        let gained = max(0, min(engine.cards, board.maximum) - previousBest)
-        let newTotal = store.addCards(gained)
-        // The score belongs to the board this session was played on: the card
-        // count, and on Supermix the combination, keep separate bests.
-        let best = store.recordScore(engine.cards, board: board)
+        let completedAttempt = engine.gameOverReason != .quit
+        let honeyEarned = completedAttempt
+            ? engine.result.correctAnswers * GameConfig.honeyPerCorrectAnswer
+                + engine.result.honeyFlowBonusHoney
+                + engine.result.routeBonusHoney
+            : 0
+        // Honey rewards effort every time. Mastery remains the separate best
+        // result for this exact level and exercise form.
+        let newTotal = store.addHoney(honeyEarned)
+        let best = completedAttempt
+            ? store.recordScore(engine.result.correctAnswers, board: board)
+            : (isNewBest: false, previousBest: previousBest)
         let unlocked = CharacterUnlocks.newlyUnlocked(from: previousTotal, to: newTotal)
 
         // Reaching this board's maximum is tallied every time, which is what
         // the ×N badge on a completed card counts.
         let maximum = board.maximum
-        if engine.cards >= maximum {
+        if completedAttempt, engine.result.correctAnswers >= maximum {
             store.recordMaxCompletion(board)
         }
 
         engine.applyProgressOutcome(previousBest: best.previousBest,
                                     isNewPersonalBest: best.isNewBest,
-                                    unlockedCharacterIDs: unlocked)
+                                    unlockedCharacterIDs: unlocked,
+                                    personalBest: store.bestScore(board),
+                                    honeyEarned: honeyEarned)
 
-        ReviewRequestCoordinator.shared.recordCompletedGame(
-            isNewHighScore: best.isNewBest,
-            score: engine.cards,
-            maximumScore: maximum
-        )
+        if completedAttempt {
+            ReviewRequestCoordinator.shared.recordCompletedGame(
+                isNewHighScore: best.isNewBest,
+                score: engine.result.correctAnswers,
+                maximumScore: maximum
+            )
+        }
 
         // Leaving a level part-way through is not an achievement: the pause
         // button banks the cards quietly, with no end-of-session fanfare.
@@ -635,6 +687,7 @@ final class GameViewModel: ObservableObject {
             answerFeedback = nil
         }
         roundNumber = engine.roundNumber
+        honeyFlowProgress = engine.honeyFlowProgress
         if pendingScoreRewards.isEmpty { cards = engine.cards }
         livesRemaining = engine.livesRemaining
         selectedOptionID = engine.selectedOptionID
@@ -659,13 +712,15 @@ final class GameViewModel: ObservableObject {
         }
     }
 
-    private enum Haptic { case light, rigid, success, error }
+    private enum Haptic { case light, rigid, success, error, skip, combo, landing }
 
 #if canImport(UIKit)
     // Built once and kept warm. A generator created on the spot has to wake the
     // Taptic Engine from idle on the calling thread, and that landed on the
     // exact main-thread frame in which an answer was taken.
     private let lightHaptic = UIImpactFeedbackGenerator(style: .light)
+    private let softHaptic = UIImpactFeedbackGenerator(style: .soft)
+    private let mediumHaptic = UIImpactFeedbackGenerator(style: .medium)
     private let rigidHaptic = UIImpactFeedbackGenerator(style: .rigid)
     private let notificationHaptic = UINotificationFeedbackGenerator()
 #endif
@@ -675,6 +730,8 @@ final class GameViewModel: ObservableObject {
     private func prepareHaptics() {
 #if canImport(UIKit)
         lightHaptic.prepare()
+        softHaptic.prepare()
+        mediumHaptic.prepare()
         rigidHaptic.prepare()
         notificationHaptic.prepare()
 #endif
@@ -687,6 +744,9 @@ final class GameViewModel: ObservableObject {
         case .rigid: rigidHaptic.impactOccurred()
         case .success: notificationHaptic.notificationOccurred(.success)
         case .error: notificationHaptic.notificationOccurred(.error)
+        case .skip: softHaptic.impactOccurred(intensity: 0.55)
+        case .combo: rigidHaptic.impactOccurred(intensity: 1)
+        case .landing: mediumHaptic.impactOccurred(intensity: 0.82)
         }
         // Firing leaves the engine idle again; this keeps the *next* answer,
         // which in fast play is only a moment away, just as immediate.
