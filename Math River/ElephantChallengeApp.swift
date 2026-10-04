@@ -146,4 +146,9 @@ enum AppLayout {
     static func isLandscape(_ size: CGSize) -> Bool {
         size.width > size.height
     }
+
+    /// Shared landscape canvas. iPad uses the extra room without stretching
+    /// controls into long, hard-to-scan rows.
+    static var landscapeContentWidth: CGFloat { isPad ? 1180 : 980 }
+    static var landscapeGutter: CGFloat { isPad ? 28 : 16 }
 }

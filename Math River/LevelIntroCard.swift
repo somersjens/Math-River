@@ -143,7 +143,10 @@ struct LevelIntroCard: View {
     /// three lines stay comfortably readable rather than shouting.
     private var featureIconScale: CGFloat { 0.8 }
     private var featureTextScale: CGFloat { isPad ? (1.1 * 0.9) : (0.88 * 0.9 * 1.1) }
-    private var portraitSize: CGFloat { 70 * scale }
+    /// The portrait sets the height of the heading: the title sits on one line
+    /// above the audio buttons, and together they fill exactly this.
+    private var portraitSize: CGFloat { 88 * scale }
+    private var headingSpacing: CGFloat { 8 * scale }
 
     var body: some View {
         let info = LevelIntro.info(for: board)
@@ -158,14 +161,38 @@ struct LevelIntroCard: View {
 
             GeometryReader { proxy in
                 ScrollView {
-                    Group {
-                        if AppLayout.isLandscape(proxy.size) {
-                            landscapeCard(info: info, features: features)
-                        } else {
-                            portraitCard(info: info, features: features)
+                    VStack(spacing: 0) {
+                        HStack(alignment: .top, spacing: 0) {
+                            VStack(alignment: .leading, spacing: 0) {
+                                introHeader(title: info.title)
+                                Spacer(minLength: 16 * scale)
+                                actionButtons
+                                if isContinuation, !isTutorialArmed {
+                                    pausedMessage
+                                        .padding(.top, 10 * scale)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                            .padding(.trailing, 22 * scale)
+
+                            Rectangle()
+                                .fill(theme.deepColor.opacity(0.14))
+                                .frame(width: 1)
+
+                            VStack(spacing: 12 * scale) {
+                                ForEach(features) { feature in
+                                    featureCard(feature)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.leading, 22 * scale)
                         }
+                        .fixedSize(horizontal: false, vertical: true)
                     }
-                    .padding(isPad ? 22 : 12)
+                    .padding(24 * scale)
+                    .frame(maxWidth: isPad ? 900 : 760)
+                    .introCardSurface(theme: theme)
+                    .padding(AppLayout.landscapeGutter)
                     .frame(maxWidth: .infinity)
                     .frame(minHeight: proxy.size.height, alignment: .center)
                 }
@@ -174,77 +201,21 @@ struct LevelIntroCard: View {
         }
     }
 
-    private func portraitCard(info: (title: String, bullets: [String]),
-                              features: [IntroFeature]) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            introHeader(title: info.title, compact: false)
-
-            DashedDivider(color: theme.color.opacity(0.45))
-                .padding(.vertical, 4)
-
-            ForEach(features) { feature in
-                featureCard(feature)
-            }
-
-            actionButtons
-
-            if isContinuation, !isTutorialArmed {
-                pausedMessage
-            }
-        }
-        .padding(28 * scale)
-        .padding(.top, 4)
-        .frame(maxWidth: 420 * scale)
-        .introCardSurface(theme: theme)
-    }
-
-    /// The landscape card uses the spare horizontal room for the explanatory
-    /// tiles. On compact iPhones this keeps every action above the home
-    /// indicator instead of turning the opening screen into a tall scroll.
-    private func landscapeCard(info: (title: String, bullets: [String]),
-                               features: [IntroFeature]) -> some View {
-        HStack(alignment: .center, spacing: isPad ? 28 : 18) {
-            VStack(alignment: .leading, spacing: isPad ? 16 : 12) {
-                introHeader(title: info.title, compact: true)
-
-                DashedDivider(color: theme.color.opacity(0.45))
-
-                actionButtons
-
-                if isContinuation, !isTutorialArmed {
-                    pausedMessage
-                }
-            }
-            .frame(maxWidth: isPad ? 340 : 260)
-
-            Rectangle()
-                .fill(theme.deepColor.opacity(0.12))
-                .frame(width: 1)
-
-            VStack(spacing: isPad ? 13 : 9) {
-                ForEach(features) { feature in
-                    featureCard(feature)
-                }
-            }
-            .frame(maxWidth: .infinity)
-        }
-        .padding(isPad ? 30 : 18)
-        .frame(maxWidth: isPad ? 920 : 760)
-        .introCardSurface(theme: theme)
-    }
-
-    private func introHeader(title: String, compact: Bool) -> some View {
-        HStack(alignment: .top, spacing: 14) {
+    /// Portrait on the left; beside it the level title on a single line with
+    /// the audio buttons underneath. The pair is pinned to the portrait's
+    /// height, so the heading reads as one block.
+    private func introHeader(title: String) -> some View {
+        HStack(alignment: .top, spacing: 12 * scale) {
             characterPortrait
-            VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: headingSpacing) {
                 Text(title)
-                    .font(.system(size: (compact ? 26 : 33) * textScale * titleScale,
+                    .font(.system(size: 29 * textScale * titleScale,
                                   weight: .heavy, design: .rounded))
                     .foregroundStyle(theme.deepColor)
-                    .lineLimit(compact ? 2 : 1)
-                    .minimumScaleFactor(0.5)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Spacer(minLength: 4)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.4)
+                    .allowsTightening(true)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                 audioControlRow
             }
             .frame(height: portraitSize)
@@ -443,22 +414,5 @@ struct LevelIntroCard: View {
         }
 
         var id: String { "\(icon)-\(number ?? "")-\(text)" }
-    }
-
-    /// A single-stroke divider avoids the doubled edge a dashed rectangle
-    /// creates at this small height.
-    private struct DashedDivider: View {
-        let color: Color
-
-        var body: some View {
-            GeometryReader { proxy in
-                Path { path in
-                    path.move(to: CGPoint(x: 0, y: proxy.size.height / 2))
-                    path.addLine(to: CGPoint(x: proxy.size.width, y: proxy.size.height / 2))
-                }
-                .stroke(color, style: StrokeStyle(lineWidth: 1.5, dash: [4, 4]))
-            }
-            .frame(height: 2)
-        }
     }
 }

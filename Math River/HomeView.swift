@@ -2,10 +2,8 @@
 //  HomeView.swift
 //  Math Memory
 //
-//  Home screen: one menu card holding the player, the streak, the topic
-//  selector and the card-count choice, with the level grid underneath.
-//  Landscape-first on iPhone and iPad, with a stacked fallback for previews
-//  and narrow multitasking windows.
+//  Home screen: a wide landscape toolbar with the player and streak on the
+//  left, the session choices on the right, and the level grid below.
 //
 
 import SwiftUI
@@ -54,7 +52,6 @@ struct HomeView: View {
     @ObservedObject private var progressSync = ProgressSync.shared
     @ObservedObject private var language = LanguageManager.shared
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     @State private var selection: LevelSelection?
     @State private var showPremium = false
@@ -120,15 +117,6 @@ struct HomeView: View {
     }
     private var practiceMode: PracticeMode { PracticeMode.from(rawValue: practiceModeRaw) }
     private var isPad: Bool { AppLayout.isPad }
-    /// A full-width landscape iPad can comfortably show a fourth level card.
-    /// Portrait and narrow multitasking windows retain the established layout.
-    private var isWidePad: Bool { isPad && viewportWidth >= 980 }
-    private var isLandscapeLayout: Bool {
-        verticalSizeClass == .compact || (isPad && viewportWidth >= 900)
-    }
-    private var landscapeMenuWidth: CGFloat {
-        min(isPad ? 430 : 330, viewportWidth * (isPad ? 0.38 : 0.42))
-    }
 
     private var displayName: String {
         playerName.isEmpty ? CharacterCatalog.defaultPlayerName : playerName
@@ -136,12 +124,41 @@ struct HomeView: View {
 
     // MARK: - Metrics
 
-    private var menuScale: CGFloat { isPad ? 1.55 : 1 }
-    private var menuCardSectionSpacing: CGFloat { isPad ? 18 : 12 }
+    private var menuScale: CGFloat { isPad ? 1.4 : 1 }
     private var menuControlSpacing: CGFloat { isPad ? 14 : 10 }
-    private var topicButtonDiameter: CGFloat { isPad ? 70 : 44 }
+    private var modeButtonHeight: CGFloat { isPad ? 48 : 37 }
     private var levelGridSpacing: CGFloat { isPad ? 16 : 10 }
-    private var levelCardHeight: CGFloat { isPad ? 132 : 96 }
+    private var levelCardHeight: CGFloat { isPad ? 124 : 90 }
+    private var menuCardPadding: CGFloat { isPad ? 20 : 13 }
+    private var menuCardSpacing: CGFloat { isPad ? 24 : 14 }
+    /// The character is exactly as tall as the two control rows beside it.
+    private var characterBox: CGFloat {
+        topicButtonDiameter + menuControlSpacing + modeButtonHeight
+    }
+    private var streakBarHeight: CGFloat { isPad ? 32 : 24 }
+    /// The player side only carries the character, three short lines and the
+    /// streak bar, so the session controls get the wider half.
+    private var playerPanelWidth: CGFloat { isPad ? 458 : 325 }
+
+    private var contentWidth: CGFloat {
+        let fallback = AppLayout.landscapeContentWidth
+        guard viewportWidth > 0 else { return fallback }
+        return min(fallback, max(0, viewportWidth - AppLayout.landscapeGutter * 2))
+    }
+
+    /// The room the topics and the row under them have. Knowing it here means
+    /// the circles can size themselves without a nested reader.
+    private var controlColumnWidth: CGFloat {
+        contentWidth - menuCardPadding * 2 - playerPanelWidth - menuCardSpacing * 2 - 1
+    }
+
+    /// The six topic circles grow to fill their row and stop at a size that
+    /// keeps the whole header short.
+    private var topicButtonDiameter: CGFloat {
+        let gap: CGFloat = isPad ? 12 : 8
+        let fits = (controlColumnWidth - gap * 5) / 6
+        return min(isPad ? 68 : 46, max(isPad ? 52 : 36, fits))
+    }
 
     var body: some View {
         // Reading the revision redraws the personal bests when iCloud updates.
@@ -160,11 +177,17 @@ struct HomeView: View {
                     .blur(radius: showsTutorialHint ? 8 : 0)
 
                 ScrollView {
-                    homeContent(topicTotal: topicTotal)
-                    .padding(isPad ? 26 : 16)
-                    .frame(maxWidth: isLandscapeLayout
-                           ? (isPad ? 1420 : 1120)
-                           : (isWidePad ? 1080 : (isPad ? 760 : 640)))
+                    VStack(alignment: .leading, spacing: isPad ? 22 : 14) {
+                        menuCard(topicTotal: topicTotal)
+                            .blur(radius: showsTutorialHint ? 7 : 0)
+                            .opacity(showsTutorialHint ? 0.45 : 1)
+                            .zIndex(1)
+                        levelGrid(topicTotal: topicTotal)
+                            .frame(maxWidth: .infinity, alignment: .topLeading)
+                            .zIndex(0)
+                    }
+                    .padding(AppLayout.landscapeGutter)
+                    .frame(maxWidth: AppLayout.landscapeContentWidth)
                     .frame(maxWidth: .infinity)
                 }
                 .background(
@@ -278,87 +301,22 @@ struct HomeView: View {
         }
     }
 
-    @ViewBuilder
-    private func homeContent(topicTotal: Int) -> some View {
-        if isLandscapeLayout {
-            HStack(alignment: .top, spacing: isPad ? 24 : 16) {
-                menuCard(topicTotal: topicTotal)
-                    .frame(width: landscapeMenuWidth)
-                    .blur(radius: showsTutorialHint ? 7 : 0)
-                    .opacity(showsTutorialHint ? 0.45 : 1)
-
-                levelGrid(topicTotal: topicTotal)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-            }
-        } else {
-            VStack(alignment: .leading, spacing: isPad ? 22 : 16) {
-                menuCard(topicTotal: topicTotal)
-                    // Stacked layouts keep the established shared width.
-                    .frame(maxWidth: isWidePad ? .infinity : 760)
-                    .frame(maxWidth: .infinity)
-                    .blur(radius: showsTutorialHint ? 7 : 0)
-                    .opacity(showsTutorialHint ? 0.45 : 1)
-                levelGrid(topicTotal: topicTotal)
-            }
-        }
-    }
-
     // MARK: - Menu card
 
     /// Everything above the level grid lives in one card, so the boundary
     /// between "settings for the next run" and "pick a level" stays obvious.
+    /// The player sits on the left and the session choices form one control
+    /// block beside them, which is faster to scan than a tall sidebar.
     private func menuCard(topicTotal: Int) -> some View {
-        VStack(spacing: menuCardSectionSpacing) {
-            HStack(alignment: .center, spacing: isPad ? 20 : 12) {
-                characterButton
+        HStack(alignment: .top, spacing: menuCardSpacing) {
+            playerPanel(topicTotal: topicTotal)
 
-                VStack(alignment: .leading, spacing: isPad ? 7 : 4) {
-                    Button {
-                        nameDraft = playerName
-                        showNameEditor = true
-                    } label: {
-                        Text(verbatim: displayName)
-                            .font(.system(size: isPad ? 34 : 20, weight: .heavy, design: .rounded))
-                            .lineLimit(2)
-                            .multilineTextAlignment(.leading)
-                            .minimumScaleFactor(0.6)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .buttonStyle(.plain)
+            Rectangle()
+                .fill(character.deepColor.opacity(0.2))
+                .frame(width: 1)
+                .padding(.vertical, 2)
 
-                    cardSummary
-                }
-                .foregroundStyle(character.deepColor)
-                // Claim every point up to the fixed streak module: the summary
-                // line alternates with a much wider phrase than the bare total,
-                // which a flexible gap here would leave no room for.
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .layoutPriority(1)
-
-                CompactStreakView(accent: character.deepColor) {
-                    // The first tap on the streak is a natural, low-pressure
-                    // moment to ask about reminders. The goal picker opens only
-                    // after the prompt is answered, so they never fight for the
-                    // screen; every later tap opens it immediately.
-                    NotificationManager.shared.requestAuthorizationOnStreakTap {
-                        showGoalPicker = true
-                    }
-                }
-                .frame(width: isPad ? 168 : 106)
-                .popover(isPresented: $showGoalPicker, arrowEdge: .top) {
-                    DailyGoalPicker(theme: character)
-                        .padding()
-                        .presentationCompactAdaptation(.popover)
-                }
-            }
-
-            Divider().overlay(character.deepColor.opacity(0.22))
-
-            // The circles, then either the three order buttons or — on the
-            // star, which has no order to choose — the 2×2 grid that replaces
-            // them.
             VStack(spacing: menuControlSpacing) {
-                topicHeader(topicTotal: topicTotal)
                 topicPicker
                 if topic.usesSupermixGrid {
                     supermixPicker
@@ -366,8 +324,9 @@ struct HomeView: View {
                     modePicker
                 }
             }
+            .frame(maxWidth: .infinity)
         }
-        .padding(isPad ? 22 : 14)
+        .padding(menuCardPadding)
         .background {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .fill(.white.opacity(0.76))
@@ -381,8 +340,51 @@ struct HomeView: View {
 
     // MARK: Character
 
+    private func playerPanel(topicTotal: Int) -> some View {
+        HStack(alignment: .center, spacing: isPad ? 16 : 10) {
+            characterButton
+
+            VStack(alignment: .leading, spacing: isPad ? 4 : 3) {
+                Button {
+                    nameDraft = playerName
+                    showNameEditor = true
+                } label: {
+                    Text(verbatim: displayName)
+                        .font(.system(size: isPad ? 26 : 18, weight: .heavy, design: .rounded))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.58)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(character.deepColor)
+
+                cardSummary
+                topicHeader(topicTotal: topicTotal)
+
+                Spacer(minLength: isPad ? 5 : 4)
+
+                StreakBar(accent: character.deepColor, height: streakBarHeight) {
+                    // The first tap on the streak is a natural, low-pressure
+                    // moment to ask about reminders. The goal picker opens only
+                    // after the prompt is answered, so they never fight for the
+                    // screen; every later tap opens it immediately.
+                    NotificationManager.shared.requestAuthorizationOnStreakTap {
+                        showGoalPicker = true
+                    }
+                }
+                .popover(isPresented: $showGoalPicker, arrowEdge: .top) {
+                    DailyGoalPicker(theme: character)
+                        .padding()
+                        .presentationCompactAdaptation(.popover)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(width: playerPanelWidth, alignment: .leading)
+        .frame(minHeight: characterBox)
+    }
+
     private var characterButton: some View {
-        let box: CGFloat = isPad ? 118 : 68
+        let box = characterBox
         return ZStack {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .fill(LinearGradient(colors: [character.skyColor, character.tintColor],
@@ -486,28 +488,22 @@ struct HomeView: View {
                                 heldStart: lastPlayedTopic,
                                 current: topicTotal,
                                 arrival: masteryArrival)
-        return HStack(alignment: .center, spacing: 8) {
+        return HStack(spacing: isPad ? 7 : 5) {
+            MasteryIcon(size: isPad ? 18 : 13)
+                .scaleEffect(highlightsHeaderCards ? 1.32 : 1)
+                .rotationEffect(.degrees(highlightsHeaderCards ? -10 : 0))
+                .reportAnchor("topicTotal")
+            CountingNumber(from: count.from,
+                           to: count.to,
+                           startedAt: count.at,
+                           duration: Self.headerCountDuration)
             Text(verbatim: L(key: topic.titleKey))
-                .font(.system(size: isPad ? 32 : 20, weight: .heavy, design: .rounded))
                 .lineLimit(1)
                 .minimumScaleFactor(0.62)
-            Label {
-                CountingNumber(from: count.from,
-                               to: count.to,
-                               startedAt: count.at,
-                               duration: Self.headerCountDuration)
-            } icon: {
-                // The card that flies up from the level card aims here, so the
-                // reward visibly joins this topic before the totals move.
-                    MasteryIcon(size: isPad ? 22 : 14)
-                    .scaleEffect(highlightsHeaderCards ? 1.32 : 1)
-                    .rotationEffect(.degrees(highlightsHeaderCards ? -10 : 0))
-                    .reportAnchor("topicTotal")
-            }
-            .font(.system(size: isPad ? 24 : 15, weight: .bold))
-            Spacer(minLength: 0)
         }
+        .font(.system(size: isPad ? 18 : 14, weight: .bold, design: .rounded))
         .foregroundStyle(character.deepColor)
+        .lineLimit(1)
     }
 
     /// Cards earned across every level of the selected topic.
@@ -637,7 +633,7 @@ struct HomeView: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.6)
                         .frame(maxWidth: .infinity)
-                        .frame(height: isPad ? 56 : 37)
+                        .frame(height: modeButtonHeight)
                         .padding(.horizontal, isPad ? 8 : 2)
                         .background(isSelected ? character.deepColor : .white.opacity(0.7),
                                     in: RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -682,7 +678,7 @@ struct HomeView: View {
                     .minimumScaleFactor(0.85)
                     .foregroundStyle(isSelected ? .white : character.deepColor)
                     .frame(maxWidth: .infinity)
-                    .frame(height: isPad ? 56 : 37)
+                    .frame(height: modeButtonHeight)
                     .background(isSelected ? character.deepColor : .white.opacity(0.62),
                                 in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -788,7 +784,7 @@ struct HomeView: View {
         return VStack(alignment: .leading, spacing: 14) {
             AdaptiveLevelGrid(spacing: levelGridSpacing,
                               minimumCardWidth: isPad ? 180 : 104,
-                              maximumColumns: isWidePad ? 4 : 3,
+                              maximumColumns: 4,
                               cardHeight: levelCardHeight) {
                 ForEach(regular) { level in
                     levelCard(level, recommendedID: recommendedID)
@@ -891,7 +887,7 @@ struct HomeView: View {
 
                 AdaptiveLevelGrid(spacing: levelGridSpacing,
                                   minimumCardWidth: isPad ? 180 : 104,
-                                  maximumColumns: isWidePad ? 4 : 3,
+                                  maximumColumns: 4,
                                   cardHeight: levelCardHeight) {
                     ForEach(levels) { level in
                         levelCard(level, recommendedID: nil)

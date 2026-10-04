@@ -434,24 +434,33 @@ struct GameView: View {
 
     private var hud: some View {
         VStack(alignment: .leading, spacing: isPad ? 8 : 6) {
-            // Landscape has width to spare but much less height than the old
-            // portrait composition. The controls therefore flank the sum board
-            // in equal-width rails. Equal rails keep the board optically centred
-            // over the track on every iPhone and iPad width.
+            // One landscape band. Equal rails keep the sum optically centred,
+            // and every control shares the pause button's height so the HUD
+            // stays a single row instead of a stacked portrait header.
             ZStack(alignment: .top) {
                 RiverQuestionBanner(prompt: model.round?.question.prompt ?? "",
                                     roundID: model.round?.id,
                                     feedback: model.answerFeedback,
                                     ink: character.deepColor,
                                     isPad: isPad)
-                    .padding(.horizontal, hudSideWidth + (isPad ? 14 : 10))
+                    .padding(.horizontal, hudSideWidth)
                     .allowsHitTesting(false)
 
-                HStack(alignment: .top, spacing: 0) {
-                    pauseButton
-                        .frame(width: hudSideWidth, alignment: .leading)
+                HStack(alignment: .center, spacing: 0) {
+                    HStack(spacing: isPad ? 10 : 8) {
+                        pauseButton
+                        LivesView(lives: model.livesRemaining,
+                                  character: character,
+                                  isPad: isPad,
+                                  glyphSize: isPad ? 26 : 18,
+                                  rowHeight: hudControlSize)
+                    }
+                    .frame(minWidth: hudSideWidth, alignment: .leading)
+                    .frame(height: hudControlSize)
+
                     Spacer(minLength: 0)
-                    VStack(alignment: .trailing, spacing: isPad ? 8 : 6) {
+
+                    HStack(spacing: isPad ? 8 : 6) {
                         progressCounter
                         HoneyFlowMeter(progress: model.honeyFlowProgress,
                                        isActive: model.isHoneyFlowActive,
@@ -460,7 +469,8 @@ struct GameView: View {
                                        isPad: isPad,
                                        showsLabel: isPad)
                     }
-                    .frame(width: hudSideWidth, alignment: .trailing)
+                    .frame(minWidth: hudSideWidth, alignment: .trailing)
+                    .frame(height: hudControlSize)
                 }
             }
 
@@ -488,15 +498,20 @@ struct GameView: View {
                         .font(.system(size: pauseGlyphSize, weight: .bold))
                         .foregroundStyle(.white)
                 }
+                .overlay {
+                    Circle().stroke(.white.opacity(0.92), lineWidth: isPad ? 3 : 2.5)
+                }
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("pause")
         .accessibilityLabel(Text("game.pause"))
     }
 
-    private var hudControlSize: CGFloat { isPad ? 44 : 34 }
-    private var pauseGlyphSize: CGFloat { isPad ? 22 : 16 }
-    private var hudSideWidth: CGFloat { isPad ? 236 : 104 }
+    private var hudControlSize: CGFloat { isPad ? 52 : 40 }
+    private var pauseGlyphSize: CGFloat { isPad ? 24 : 18 }
+    /// Wide enough for pause plus three hearts on the left, and the score
+    /// plus Honey Flow on the right, without eating the sum board.
+    private var hudSideWidth: CGFloat { isPad ? 300 : 186 }
     private var hudColumnHeight: CGFloat { RiverQuestionBanner.height(isPad: isPad) }
 
     /// Same disc as the pause button, with the score as a digit on it.
@@ -529,6 +544,7 @@ struct GameView: View {
         .frame(height: hudControlSize)
         .padding(.horizontal, isPad ? 12 : 9)
         .background(Capsule().fill(character.deepColor))
+        .overlay(Capsule().stroke(.white.opacity(0.92), lineWidth: isPad ? 3 : 2.5))
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: model.cards)
         .accessibilityElement(children: .ignore)
         .accessibilityIdentifier("progress")
@@ -756,6 +772,9 @@ struct LivesView: View {
     private func heart(at index: Int) -> some View {
         let size = glyphSize
         return ZStack {
+            Image(systemName: "heart.fill")
+                .foregroundStyle(.white.opacity(0.85))
+                .scaleEffect(1.22)
             Image(systemName: "heart.fill")
                 .foregroundStyle(heartColor.opacity(0.22))
             if index < wholeHearts {

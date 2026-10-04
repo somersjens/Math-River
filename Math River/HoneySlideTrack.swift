@@ -44,11 +44,11 @@ enum HoneySlideTuning {
     static let cameraNearPlane: CGFloat = 1.4
     static let perspectiveFOVDegrees: CGFloat = 74
     static let worldLateralScale: CGFloat = 22
-    /// The physical half-width is deliberately 1.5x the previous 4.8 m lane.
-    /// Authored width multipliers can open answer approaches further without
-    /// changing steering into discrete lanes.
-    static let additionalWidthMultiplier: CGFloat = 1.20
-    static let worldTrackHalfWidth: CGFloat = 7.2 * additionalWidthMultiplier
+    /// A normal section is 23 metres wide. The previous 17.28 metre lane left
+    /// four answers visually crowded and made its usable edge space mostly
+    /// theoretical. Local authored multipliers still widen overlooks and
+    /// answer approaches without turning steering into discrete lanes.
+    static let worldTrackHalfWidth: CGFloat = 11.5
     static let steeringResponse: CGFloat = 8.8
     static let steeringDragScale: CGFloat = 1.85
     static let playerFootprintRadius: CGFloat = 0.85
@@ -63,7 +63,10 @@ enum HoneySlideTuning {
     static let maxCurveDriftAcceleration: CGFloat = 1.25
     static let lateralDrag: CGFloat = 1.35
     static let steeringAcceleration: CGFloat = 8.5
-    static let maxLateralSpeed: CGFloat = 4.8
+    /// Floor for lateral speed. Wide sections scale above this value so adding
+    /// physical room does not make a full-width move take longer.
+    static let minimumMaxLateralSpeed: CGFloat = 4.8
+    static let normalizedLateralSpeedLimit: CGFloat = 0.78
     static let bankingDriftCompensation: CGFloat = 1.8
     static let railVelocityRetention: CGFloat = 0.12
     static let lateralSimulationStep: Double = 1.0 / 120.0
@@ -72,6 +75,12 @@ enum HoneySlideTuning {
     static let jumpHeight: CGFloat = 0.115
     static let landingRecoveryDuration: Double = 0.52
     static let splitCommitProgress: CGFloat = 0.42
+    /// Camera follow begins only near the outer thirds. Keeping a central dead
+    /// zone preserves the sensation of crossing the track; partial follow then
+    /// keeps the rider and the outermost answers inside the phone viewport.
+    static let cameraFollowDeadZone: CGFloat = 0.30
+    static let cameraFollowStrength: CGFloat = 0.62
+    static let cameraFollowResponse: CGFloat = 5.2
     static var answerLeadDistance: CGFloat {
         nominalSlideSpeed * CGFloat(GameConfig.riverApproachDuration)
     }
@@ -82,12 +91,33 @@ enum HoneySlideTuning {
     /// Staying in the middle must never answer a sum by accident. This is wider
     /// than the collision slop, leaving room for the small drift of a curve.
     static let neutralAnswerClearance: CGFloat = 0.34
+    /// Ordinary curves may be safe to ride but are not automatically spacious
+    /// enough for four choices. Answer waves wait for at least this multiplier.
+    static let minimumAnswerTrackWidth: CGFloat = 1.12
+    /// Hit testing is expressed as a physical radius and converted back to the
+    /// normalized projection space. A fixed normalized radius became much too
+    /// forgiving as the track got wider and could overlap adjacent choices.
+    static let answerHitWorldRadius: CGFloat = 2.15
+    static let minimumAnswerHitLateralSlop: CGFloat = 0.12
+    static let maximumAnswerHitLateralSlop: CGFloat = 0.21
     static let splashPoolCapacity = 48
 
     static func playableLateralLimit(for width: CGFloat) -> CGFloat {
         let halfWidth = max(0.001, worldTrackHalfWidth * width)
         let footprintLimit = 1 - (playerFootprintRadius + railClearance) / halfWidth
         return min(maximumPlayerLateral, max(0.68, footprintLimit))
+    }
+
+    static func maximumLateralSpeed(for width: CGFloat) -> CGFloat {
+        max(minimumMaxLateralSpeed,
+            worldTrackHalfWidth * max(0.001, width) * normalizedLateralSpeedLimit)
+    }
+
+    static func answerHitLateralSlop(for width: CGFloat) -> CGFloat {
+        let halfWidth = max(0.001, worldTrackHalfWidth * width)
+        return min(maximumAnswerHitLateralSlop,
+                   max(minimumAnswerHitLateralSlop,
+                       answerHitWorldRadius / halfWidth))
     }
 
     static func answerLateral(_ proposed: CGFloat, trackWidth: CGFloat) -> CGFloat {
@@ -324,7 +354,7 @@ struct HoneyTrackSample {
     var isAnswerSafe: Bool {
         guard hasSurface,
               railings,
-              width >= 1.0,
+              width >= HoneySlideTuning.minimumAnswerTrackWidth,
               !locksBranch,
               localProgress > 0.12,
               localProgress < 0.88 else { return false }
@@ -384,34 +414,34 @@ struct HoneySlideRoute {
     static let verticalSlice = HoneySlideRoute(segments: [
         // A purpose-built downhill feel test: long descent, falling curves,
         // a short drop, a ravine jump, a low landing and a final fast run.
-        HoneySlideSegment("high-start-descent", kind: .wide, length: 108, width: 1.48, endWidth: 1.10,
+        HoneySlideSegment("high-start-descent", kind: .wide, length: 108, width: 1.48, endWidth: 1.12,
                           heightDelta: -44, elevationUndulation: 2.8,
                           cameraLookAhead: 1.10),
-        HoneySlideSegment("falling-soft-left", kind: .curve, length: 104, width: 1.10, endWidth: 1.02,
+        HoneySlideSegment("falling-soft-left", kind: .curve, length: 104, width: 1.12, endWidth: 1.12,
                           lateralShift: -0.65, heightDelta: -42, bendAmplitude: -0.20,
                           troughDepth: 0.13, banking: -0.20, elevationUndulation: -3.6,
                           cameraLookAhead: 1.16),
-        HoneySlideSegment("short-steep-drop", kind: .descent, length: 56, width: 1.02, endWidth: 1.00,
+        HoneySlideSegment("short-steep-drop", kind: .descent, length: 56, width: 1.12, endWidth: 1.12,
                           lateralShift: -0.10, heightDelta: -44, troughDepth: 0.15,
                           elevationUndulation: 2.4,
                           speedMultiplier: 1.10, cameraLookAhead: 1.28),
-        HoneySlideSegment("descending-right-s", kind: .sCurve, length: 124, width: 1.00, endWidth: 1.14,
+        HoneySlideSegment("descending-right-s", kind: .sCurve, length: 124, width: 1.12, endWidth: 1.14,
                           lateralShift: 0.75, heightDelta: -52, bendAmplitude: 0.48,
                           troughDepth: 0.14, banking: 0.22, elevationUndulation: -4.4,
                           cameraLookAhead: 1.18),
         HoneySlideSegment("quiet-answer-run", kind: .answerApproach, length: 96, width: 1.14, endWidth: 1.48,
                           heightDelta: -20, elevationUndulation: 1.6,
-                          answerOffsets: [-0.82, -0.36, 0.36, 0.82]),
+                          answerOffsets: [-0.84, -0.30, 0.30, 0.84]),
         // A short tunnel is a breathing beat between the high forest and the
         // ravine. It is deliberately never used as an answer corridor.
         HoneySlideSegment("forest-rest-tunnel", kind: .tunnel, length: 46, width: 1.48, endWidth: 1.28,
                           heightDelta: -12, troughDepth: 0.14,
                           cameraLookAhead: 1.08),
-        HoneySlideSegment("strong-valley-descent", kind: .descent, length: 84, width: 1.28, endWidth: 1.10,
+        HoneySlideSegment("strong-valley-descent", kind: .descent, length: 84, width: 1.28, endWidth: 1.12,
                           lateralShift: -0.25, heightDelta: -60, troughDepth: 0.15,
                           elevationUndulation: 3.6,
                           speedMultiplier: 1.14, cameraLookAhead: 1.30),
-        HoneySlideSegment("ravine-gap", kind: .jump, length: 24, width: 1.10, endWidth: 1.30,
+        HoneySlideSegment("ravine-gap", kind: .jump, length: 24, width: 1.12, endWidth: 1.30,
                           lateralShift: 0.05, heightDelta: -14, elevationUndulation: -1.0,
                           railings: false,
                           speedMultiplier: 1.10, cameraLookAhead: 1.36),
@@ -419,7 +449,7 @@ struct HoneySlideRoute {
                           lateralShift: 0.08, heightDelta: -24, elevationUndulation: 2.4),
         HoneySlideSegment("ravine-answer-overlook", kind: .answerApproach, length: 78, width: 1.12, endWidth: 1.42,
                           heightDelta: -18, elevationUndulation: 1.3,
-                          answerOffsets: [-0.82, -0.36, 0.36, 0.82]),
+                          answerOffsets: [-0.84, -0.30, 0.30, 0.84]),
         HoneySlideSegment("long-fast-honey-slide", kind: .curve, length: 124, width: 1.42, endWidth: 1.18,
                           lateralShift: 0.12, heightDelta: -56, bendAmplitude: 0.22,
                           troughDepth: 0.14, banking: 0.16, elevationUndulation: -4.0,
@@ -427,15 +457,15 @@ struct HoneySlideRoute {
         // The finale offers a real left/right branch with one small honey
         // pickup. Its compact length keeps every next question inside the
         // bounded safe-corridor delay.
-        HoneySlideSegment("finale-split", kind: .split, length: 12, width: 1.18, endWidth: 1.05,
+        HoneySlideSegment("finale-split", kind: .split, length: 12, width: 1.18, endWidth: 1.12,
                           heightDelta: -4, railings: true),
-        HoneySlideSegment("finale-branch", kind: .branch, length: 12, width: 1.05,
+        HoneySlideSegment("finale-branch", kind: .branch, length: 12, width: 1.12,
                           lateralShift: 0.42, heightDelta: -5, railings: true),
-        HoneySlideSegment("finale-merge", kind: .merge, length: 12, width: 1.05, endWidth: 1.18,
+        HoneySlideSegment("finale-merge", kind: .merge, length: 12, width: 1.12, endWidth: 1.18,
                           lateralShift: -0.42, heightDelta: -4, railings: true),
         HoneySlideSegment("valley-answer-finish", kind: .answerApproach, length: 100, width: 1.18, endWidth: 1.48,
                           lateralShift: 0, heightDelta: -24, elevationUndulation: 1.8,
-                          answerOffsets: [-0.82, -0.36, 0.36, 0.82])
+                          answerOffsets: [-0.84, -0.30, 0.30, 0.84])
     ])
 
     let segments: [HoneySlideSegment]

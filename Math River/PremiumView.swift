@@ -13,6 +13,39 @@ import StoreKit
 import UIKit
 #endif
 
+/// Every size on the sheet is derived from the height the device actually
+/// offers, so the hero, the offer and the whole cast fit on one landscape
+/// screen instead of pushing the buy button below the fold. The base numbers
+/// are tuned for an iPhone in landscape; `unit` stretches them for iPad.
+private struct PremiumMetrics {
+    let unit: CGFloat
+
+    init(height: CGFloat, isPad: Bool) {
+        let designHeight: CGFloat = isPad ? 515 : 390
+        let raw = height / designHeight
+        unit = min(isPad ? 1.55 : 1.15, max(0.72, raw))
+    }
+
+    private func s(_ value: CGFloat) -> CGFloat { value * unit }
+
+    var cardPadding: CGFloat { s(13) }
+    var stackSpacing: CGFloat { s(11) }
+    var columnSpacing: CGFloat { s(14) }
+    var heroSize: CGFloat { s(168) }
+    var nameSize: CGFloat { s(26) }
+    var badgeSize: CGFloat { s(13) }
+    var panelPadding: CGFloat { s(14) }
+    var featureSpacing: CGFloat { s(8) }
+    var featureTitle: CGFloat { s(16) }
+    var featureSubtitle: CGFloat { s(13) }
+    var buttonFont: CGFloat { 17 * min(unit, 1.15) }
+    var buttonPadding: CGFloat { s(10) }
+    var footnote: CGFloat { s(12) }
+    var stripPadding: CGFloat { s(8) }
+    var tileSpacing: CGFloat { s(5) }
+    var tileArt: CGFloat { s(40) }
+}
+
 struct PremiumView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var premium = PremiumStore.shared
@@ -50,9 +83,6 @@ struct PremiumView: View {
     }
     private var isPad: Bool { AppLayout.isPad }
     private var scale: CGFloat { isPad ? 1.4 : 1 }
-    private var characterColumns: [GridItem] {
-        Array(repeating: GridItem(.flexible(), spacing: 8 * scale), count: 5)
-    }
 
     var body: some View {
         let _ = totalCards
@@ -61,20 +91,33 @@ struct PremiumView: View {
                            startPoint: .top, endPoint: .bottom)
                 .ignoresSafeArea()
 
-            ScrollView {
-                VStack(spacing: isPad ? 28 : 22) {
-                    hero
-                    cardCharacterCard
-                    premiumCharacterCard
-                    purchaseSection
+            GeometryReader { proxy in
+                let available = min(AppLayout.landscapeContentWidth,
+                                    max(0, proxy.size.width - AppLayout.landscapeGutter * 2))
+                let metrics = PremiumMetrics(height: proxy.size.height, isPad: isPad)
+
+                ScrollView {
+                    VStack(spacing: metrics.stackSpacing) {
+                        HStack(alignment: .top, spacing: metrics.columnSpacing) {
+                            heroPanel(metrics)
+                                .frame(maxWidth: .infinity)
+                            offerPanel(metrics)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
+                        characterStrip(metrics)
+                    }
+                    .padding(metrics.cardPadding)
+                    .background(.white.opacity(0.52),
+                                in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+                    .shadow(color: character.deepColor.opacity(0.1), radius: 16, y: 7)
+                    .padding(AppLayout.landscapeGutter)
+                    .frame(width: available + AppLayout.landscapeGutter * 2)
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: proxy.size.height)
                 }
-                .padding(.horizontal, isPad ? 32 : 22)
-                .padding(.bottom, isPad ? 38 : 28)
-                .frame(maxWidth: isPad ? 880 : 620)
-                .frame(maxWidth: .infinity)
+                .scrollBounceBehavior(.basedOnSize)
+                .scrollIndicators(.visible)
             }
-            .scrollBounceBehavior(.always)
-            .scrollIndicators(.visible)
 
             if showsUnlockCelebration, let unlockedCharacter {
                 unlockCelebration(animal: unlockedCharacter)
@@ -85,16 +128,6 @@ struct PremiumView: View {
                     .ignoresSafeArea()
                     .contentShape(Rectangle())
                     .zIndex(10)
-            }
-        }
-        .overlay(alignment: .topLeading) {
-            if activeUnlockCharacterID == nil { closeButton }
-        }
-        .overlay(alignment: .topTrailing) {
-            if activeUnlockCharacterID == nil {
-                LanguagePicker(tint: character.deepColor.opacity(0.7), scale: isPad ? 1.25 : 1)
-                    .padding(.top, isPad ? 28 : 24)
-                    .padding(.trailing, isPad ? 28 : 18)
             }
         }
         .animation(.easeInOut(duration: 0.25), value: previewCharacterID)
@@ -121,176 +154,165 @@ struct PremiumView: View {
         }
     }
 
-    private var closeButton: some View {
+    private func closeButton(metrics: PremiumMetrics) -> some View {
         Button { dismiss() } label: {
             Image(systemName: "xmark")
-                .font(.system(size: 17 * scale, weight: .bold))
+                .font(.system(size: metrics.badgeSize + 3, weight: .bold))
                 .foregroundStyle(character.deepColor)
-                .frame(width: 38 * scale, height: 38 * scale)
+                .frame(width: metrics.badgeSize * 2.6, height: metrics.badgeSize * 2.6)
                 .background(.white.opacity(0.7), in: Circle())
                 .shadow(color: character.deepColor.opacity(0.15), radius: 6, y: 3)
         }
-        .padding(.top, isPad ? 28 : 24)
-        .padding(.leading, isPad ? 28 : 18)
     }
 
-    private var hero: some View {
-        VStack(spacing: 4) {
-            GeometryReader { proxy in
-                let heroSize = min(isPad ? 336 : 220, max(145, proxy.size.width * 0.50))
-                ZStack {
-                    Circle()
-                        .fill(RadialGradient(
-                            colors: [character.color.opacity(0.35), character.color.opacity(0.05)],
-                            center: .center, startRadius: 6, endRadius: 150
-                        ))
-                        .frame(width: heroSize, height: heroSize)
-                    Circle()
-                        .stroke(character.color.opacity(0.30), lineWidth: 2)
-                        .frame(width: heroSize * 0.92, height: heroSize * 0.92)
-                    character.artwork
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: heroSize * 0.88, height: heroSize * 0.88)
-                        .shadow(color: character.deepColor.opacity(0.25), radius: 14, y: 8)
-                        .id(previewCharacterID)
-                        .transition(.scale.combined(with: .opacity))
+    /// Left half: the character being previewed, with the close button and the
+    /// language picker tucked into the top of the column.
+    private func heroPanel(_ metrics: PremiumMetrics) -> some View {
+        VStack(spacing: metrics.stackSpacing * 0.45) {
+            HStack {
+                if activeUnlockCharacterID == nil {
+                    closeButton(metrics: metrics)
+                    Spacer()
+                    LanguagePicker(tint: character.deepColor.opacity(0.7),
+                                   scale: isPad ? 1.05 : 0.82)
+                } else {
+                    Spacer()
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(height: isPad ? 336 : 220)
+
+            let heroSize = metrics.heroSize
+            ZStack {
+                Circle()
+                    .fill(RadialGradient(
+                        colors: [character.color.opacity(0.35), character.color.opacity(0.05)],
+                        center: .center, startRadius: 6, endRadius: heroSize * 0.8
+                    ))
+                    .frame(width: heroSize, height: heroSize)
+                Circle()
+                    .stroke(character.color.opacity(0.30), lineWidth: 2)
+                    .frame(width: heroSize * 0.92, height: heroSize * 0.92)
+                character.artwork
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: heroSize * 0.88, height: heroSize * 0.88)
+                    .shadow(color: character.deepColor.opacity(0.25), radius: 14, y: 8)
+                    .id(previewCharacterID)
+                    .transition(.scale.combined(with: .opacity))
+            }
+            .frame(maxWidth: .infinity)
 
             Text(character.localizedName)
-                .font(.system(size: 30 * scale, weight: .heavy, design: .rounded))
+                .font(.system(size: metrics.nameSize, weight: .heavy, design: .rounded))
                 .foregroundStyle(character.deepColor)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
 
-            availabilityBadge(for: character)
+            availabilityBadge(for: character, metrics: metrics)
+            Spacer(minLength: 0)
         }
-        .padding(.top, 44)
+    }
+
+    /// Right half: the perks and the purchase, in one card so they read as a
+    /// single offer instead of a portrait stack.
+    private func offerPanel(_ metrics: PremiumMetrics) -> some View {
+        VStack(spacing: metrics.featureSpacing) {
+            featureList(metrics)
+            purchaseSection(metrics)
+        }
+        .padding(metrics.panelPadding)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        .background(.white.opacity(0.42),
+                    in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .strokeBorder(
+                    LinearGradient(colors: [character.color, character.deepColor],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing),
+                    lineWidth: 1.75
+                )
+                .opacity(0.55)
+        )
+    }
+
+    /// The whole cast in one row along the bottom. Honey prices and crowns
+    /// stay on the tiles, so the two groups no longer need their own cards.
+    private func characterStrip(_ metrics: PremiumMetrics) -> some View {
+        HStack(spacing: metrics.tileSpacing) {
+            ForEach(CharacterCatalog.all) { animal in
+                characterCell(for: animal, metrics: metrics)
+            }
+        }
+        .padding(metrics.stripPadding)
+        .background(.white.opacity(0.34),
+                    in: RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
     @ViewBuilder
-    private func availabilityBadge(for animal: AnimalCharacter) -> some View {
+    private func availabilityBadge(for animal: AnimalCharacter, metrics: PremiumMetrics) -> some View {
         if animal.id == CharacterCatalog.freeCharacterID {
-            badge(text: L(key: "premium.availableFromStart"), icon: nil)
+            badge(text: L(key: "premium.availableFromStart"), icon: nil, metrics: metrics)
         } else if let cards = CharacterUnlockStore.requirement(for: animal.id) {
             if totalCards >= cards {
                 badge(text: L("You’ve earned \(cards) honey"),
-                      icon: "checkmark.circle.fill")
+                      icon: "checkmark.circle.fill", metrics: metrics)
             } else if premium.isPremium {
-                badge(text: L(key: "premium.unlockedWithPremium"), icon: "crown.fill")
+                badge(text: L(key: "premium.unlockedWithPremium"), icon: "crown.fill", metrics: metrics)
             } else {
                 badge(text: L("Available from \(cards) honey"),
-                      icon: Currency.icon)
+                      icon: Currency.icon, metrics: metrics)
             }
         } else {
             badge(
                 text: L(key: premium.isPremium ? "premium.unlockedWithPremium" : "premium.exclusiveWithPremium"),
-                icon: "crown.fill"
+                icon: "crown.fill",
+                metrics: metrics
             )
         }
     }
 
-    private func badge(text: String, icon: String?) -> some View {
+    private func badge(text: String, icon: String?, metrics: PremiumMetrics) -> some View {
         HStack(spacing: 6) {
             if let icon {
                 if icon == Currency.icon {
-                    CurrencyIcon(size: 13 * scale)
+                    CurrencyIcon(size: metrics.badgeSize)
                 } else {
                     Image(systemName: icon)
                 }
             }
             Text(text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
         }
-        .font(.system(size: 13 * scale, weight: .bold, design: .rounded))
+        .font(.system(size: metrics.badgeSize, weight: .bold, design: .rounded))
         .foregroundStyle(character.deepColor)
-        .padding(.horizontal, 12 * scale)
-        .padding(.vertical, 6 * scale)
+        .padding(.horizontal, metrics.badgeSize)
+        .padding(.vertical, metrics.badgeSize * 0.45)
         .background(.white.opacity(0.58), in: Capsule())
         .overlay(Capsule().stroke(character.color.opacity(0.38), lineWidth: 1))
     }
 
-    private var featureList: some View {
-        VStack(alignment: .leading, spacing: 14) {
+    private func featureList(_ metrics: PremiumMetrics) -> some View {
+        VStack(alignment: .leading, spacing: metrics.featureSpacing) {
             // The level and animal counts travel as arguments rather than being
             // written into the sentence, so a translation never has to be
             // revisited when the catalog grows.
             featureRow(icon: "square.grid.3x3.fill",
                        title: L("premium.feature.levels.title \(GameConfig.maximumLevel)"),
-                       subtitle: L("premium.feature.levels.subtitle"))
+                       subtitle: L("premium.feature.levels.subtitle"),
+                       metrics: metrics)
             featureRow(icon: "pawprint.fill",
                        title: L("premium.feature.animals.title"),
-                       subtitle: L("premium.feature.animals.subtitle \(CharacterUnlocks.orderedCharacterIDs.count)"))
+                       subtitle: L("premium.feature.animals.subtitle \(CharacterUnlocks.orderedCharacterIDs.count)"),
+                       metrics: metrics)
             featureRow(icon: "nosign",
                        title: L("premium.feature.noAds.title"),
-                       subtitle: L("premium.feature.noAds.subtitle"))
+                       subtitle: L("premium.feature.noAds.subtitle"),
+                       metrics: metrics)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var cardCharacterCard: some View {
-        characterGroup(
-            title: L(key: "Unlock with honey"),
-            icon: Currency.icon,
-            animals: CharacterCatalog.cardCharacters
-        )
-        .padding(14 * scale)
-        .background(.white.opacity(0.55), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(character.color.opacity(0.28), lineWidth: 1.2)
-        )
-    }
-
-    private var premiumCharacterCard: some View {
-        VStack(spacing: 18 * scale) {
-            characterGroup(
-                title: L(key: "premium.exclusiveWithPremium"),
-                icon: "crown.fill",
-                animals: CharacterCatalog.premiumCharacters
-            )
-
-            Rectangle()
-                .fill(character.color.opacity(0.24))
-                .frame(height: 1)
-
-            featureList
-                .padding(.horizontal, 4 * scale)
-                .padding(.bottom, 4 * scale)
-        }
-        .padding(14 * scale)
-        .background(.white.opacity(0.55), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(character.color.opacity(0.28), lineWidth: 1.2)
-        )
-    }
-
-    private func characterGroup(title: String, icon: String, animals: [AnimalCharacter]) -> some View {
-        VStack(spacing: 11 * scale) {
-            HStack(spacing: 10) {
-                Rectangle().fill(character.color.opacity(0.42)).frame(height: 1)
-                HStack(spacing: 6) {
-                    if icon == Currency.icon {
-                        CurrencyIcon(size: 15 * scale)
-                    } else {
-                        Image(systemName: icon)
-                    }
-                    Text(title)
-                }
-                .font(.system(size: 15 * scale, weight: .heavy, design: .rounded))
-                .foregroundStyle(character.deepColor)
-                .fixedSize()
-                Rectangle().fill(character.color.opacity(0.42)).frame(height: 1)
-            }
-
-            LazyVGrid(columns: characterColumns, spacing: 8 * scale) {
-                ForEach(animals) { animal in characterCell(for: animal) }
-            }
-        }
-    }
-
-    private func characterCell(for animal: AnimalCharacter) -> some View {
+    private func characterCell(for animal: AnimalCharacter, metrics: PremiumMetrics) -> some View {
         let isSelected = previewCharacterID == animal.id
         let isAccessible = canUse(animal)
         return Button {
@@ -298,14 +320,16 @@ struct PremiumView: View {
             previewCharacterID = animal.id
             if isAccessible { characterID = animal.id }
         } label: {
-            VStack(spacing: 5 * scale) {
-                ZStack(alignment: .topTrailing) {
-                    characterArtwork(for: animal)
-                }
-                characterCellChip(for: animal)
+            VStack(spacing: metrics.tileSpacing) {
+                animal.thumbArtwork
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: metrics.tileArt, height: metrics.tileArt)
+                characterCellChip(for: animal, metrics: metrics)
             }
-            .padding(.horizontal, isPad ? 16 : 3)
-            .padding(.vertical, 8 * scale)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 2)
+            .padding(.vertical, metrics.tileSpacing)
             .background(isSelected ? character.color.opacity(0.16) : .white.opacity(0.78),
                         in: RoundedRectangle(cornerRadius: 13, style: .continuous))
             .overlay {
@@ -321,51 +345,26 @@ struct PremiumView: View {
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 
-    /// The animal inside one grid cell. On iPhone the five columns are barely
-    /// wider than the 44pt slot, so a fixed size fills the cell. On iPad the same
-    /// five columns are spread over a card three times as wide, and a scaled 44pt
-    /// slot leaves the animal floating in the middle of an empty cell — there the
-    /// artwork follows the column instead, inset so it sits inside the chip's
-    /// width the way the iPhone one does rather than touching the cell edges.
     @ViewBuilder
-    private func characterArtwork(for animal: AnimalCharacter) -> some View {
-        if isPad {
-            Color.clear
-                .aspectRatio(1, contentMode: .fit)
-                .overlay {
-                    animal.thumbArtwork
-                        .resizable()
-                        .scaledToFit()
-                }
-                .padding(.horizontal, 11)
-        } else {
-            animal.thumbArtwork
-                .resizable()
-                .scaledToFit()
-                .frame(width: 44, height: 44)
-                .frame(maxWidth: .infinity)
-        }
-    }
-
-    @ViewBuilder
-    private func characterCellChip(for animal: AnimalCharacter) -> some View {
+    private func characterCellChip(for animal: AnimalCharacter, metrics: PremiumMetrics) -> some View {
+        let chipScale = metrics.unit * 0.85
         if animal.id == CharacterCatalog.freeCharacterID {
             if totalCards >= (CharacterUnlockStore.requirement(for: "frog") ?? 500) {
                 Image(systemName: "checkmark.circle.fill")
-                    .characterChipStyle(character: character, scale: scale)
+                    .characterChipStyle(character: character, scale: chipScale)
             } else {
                 Text(verbatim: L(key: "premium.start"))
-                    .characterChipStyle(character: character, scale: scale)
+                    .characterChipStyle(character: character, scale: chipScale)
             }
         } else if canUse(animal) {
             Image(systemName: "checkmark.circle.fill")
-                .characterChipStyle(character: character, scale: scale)
+                .characterChipStyle(character: character, scale: chipScale)
         } else if let cards = CharacterUnlockStore.requirement(for: animal.id) {
             Text(verbatim: LN(cards))
-                .characterChipStyle(character: character, scale: scale)
+                .characterChipStyle(character: character, scale: chipScale)
         } else {
             Image(systemName: "crown.fill")
-                .characterChipStyle(character: character, scale: scale)
+                .characterChipStyle(character: character, scale: chipScale)
         }
     }
 
@@ -374,37 +373,41 @@ struct PremiumView: View {
     }
 
     @ViewBuilder
-    private var purchaseSection: some View {
+    private func purchaseSection(_ metrics: PremiumMetrics) -> some View {
         if premium.isPremium {
             Button { dismiss() } label: {
                 Text("common.done")
-                    .font(isPad ? .system(size: 24, weight: .bold) : .headline)
+                    .font(.system(size: metrics.buttonFont, weight: .bold))
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14 * scale)
-                    .background(character.color, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .padding(.vertical, metrics.buttonPadding)
+                    .background(character.color, in: Capsule())
                     .foregroundStyle(.white)
             }
             .buttonStyle(.plain)
         } else {
-            VStack(spacing: 12) {
+            VStack(spacing: metrics.footnote * 0.35) {
                 Button { showsParentApproval = true } label: {
-                    HStack {
+                    HStack(spacing: 8) {
                         if premium.isPurchasing {
                             ProgressView().tint(.white)
                         } else {
+                            Image(systemName: "crown.fill")
+                                .font(.system(size: metrics.buttonFont, weight: .bold))
                             Text(purchaseButtonTitle)
-                                .font(isPad ? .system(size: 24, weight: .bold) : .headline)
+                                .font(.system(size: metrics.buttonFont, weight: .bold))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.6)
                         }
                     }
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16 * scale)
+                    .padding(.vertical, metrics.buttonPadding)
                     .background(
                         LinearGradient(colors: [character.color, character.deepColor],
                                        startPoint: .top, endPoint: .bottom),
-                        in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        in: Capsule()
                     )
                     .foregroundStyle(.white)
-                    .shadow(color: character.deepColor.opacity(0.3), radius: 10, y: 5)
+                    .shadow(color: character.deepColor.opacity(0.3), radius: 8, y: 4)
                 }
                 .buttonStyle(.plain)
                 .disabled(premium.isPurchasing)
@@ -412,18 +415,19 @@ struct PremiumView: View {
                 .accessibilityLabel(Text(verbatim: purchaseButtonTitle))
 
                 Text("premium.oneTime")
-                    .font(isPad ? .system(size: 20) : .subheadline)
+                    .font(.system(size: metrics.footnote))
                     .foregroundStyle(character.deepColor.opacity(0.7))
+                    .multilineTextAlignment(.center)
 
                 Button("premium.restore") {
                     Task { await premium.restorePurchases() }
                 }
-                .font(isPad ? .system(size: 18) : .footnote)
+                .font(.system(size: metrics.footnote * 0.92))
                 .foregroundStyle(character.deepColor.opacity(0.7))
 
                 if let error = premium.lastError {
                     Text(error)
-                        .font(isPad ? .system(size: 18) : .footnote)
+                        .font(.system(size: metrics.footnote * 0.92))
                         .foregroundStyle(.red)
                         .multilineTextAlignment(.center)
                 }
@@ -458,19 +462,24 @@ struct PremiumView: View {
         }
     }
 
-    private func featureRow(icon: String, title: String, subtitle: String) -> some View {
-        HStack(alignment: .center, spacing: 12 * scale) {
+    private func featureRow(icon: String, title: String, subtitle: String,
+                            metrics: PremiumMetrics) -> some View {
+        HStack(alignment: .center, spacing: 10) {
             Image(systemName: icon)
-                .font(isPad ? .system(size: 28) : .title3)
+                .font(.system(size: metrics.featureTitle, weight: .bold))
                 .foregroundStyle(character.color)
-                .frame(width: 28 * scale)
-            VStack(alignment: .leading, spacing: 2) {
+                .frame(width: metrics.featureTitle + 6)
+            VStack(alignment: .leading, spacing: 1) {
                 Text(title)
-                    .font(isPad ? .system(size: 24, weight: .bold) : .subheadline.weight(.bold))
+                    .font(.system(size: metrics.featureTitle, weight: .bold))
                     .foregroundStyle(character.deepColor)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
                 Text(subtitle)
-                    .font(isPad ? .system(size: 20) : .footnote)
+                    .font(.system(size: metrics.featureSubtitle))
                     .foregroundStyle(character.deepColor.opacity(0.7))
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.75)
             }
         }
     }

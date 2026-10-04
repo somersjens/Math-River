@@ -41,53 +41,33 @@ struct OnboardingView: View {
     @FocusState private var isNameFieldFocused: Bool
 
     private var isPad: Bool { AppLayout.isPad }
-    private var contentWidth: CGFloat { isPad ? 640 : 500 }
+    private var contentWidth: CGFloat { isPad ? 680 : 560 }
 
     var body: some View {
         ZStack {
             onboardingBackground
 
             GeometryReader { proxy in
-                let usesLandscapeLayout = AppLayout.isLandscape(proxy.size)
                 ScrollView {
-                    Group {
-                        if usesLandscapeLayout {
-                            let portrait: CGFloat = isPad
-                                ? (step == 1 ? 190 : 230)
-                                : (step == 1 ? 118 : 145)
-                            let panelWidth = min(
-                                contentWidth,
-                                max(0, proxy.size.width - portrait - (isPad ? 150 : 100))
-                            )
-                            HStack(spacing: isPad ? 54 : 34) {
-                                welcomeArtwork(size: portrait)
-                                stepPanel(availableWidth: panelWidth, usesTwoColumns: true)
-                                    .frame(maxWidth: panelWidth)
-                            }
-                            .padding(.horizontal, isPad ? 72 : 48)
-                            .padding(.vertical, isPad ? 28 : 18)
-                        } else {
-                            let portrait: CGFloat = isPad
-                                ? (step == 1 ? 160 : 210)
-                                : (step == 1 ? 112 : 150)
-                            VStack(spacing: 0) {
-                                welcomeArtwork(size: portrait)
-                                    .padding(.bottom, isPad
-                                             ? (step == 1 ? 20 : 30)
-                                             : (step == 1 ? 14 : 22))
-                                let availableWidth = min(
-                                    contentWidth,
-                                    max(0, proxy.size.width - (isPad ? 72 : 48))
-                                )
-                                stepPanel(availableWidth: availableWidth,
-                                          usesTwoColumns: isPad && proxy.size.width > proxy.size.height)
-                                    .padding(.horizontal, isPad ? 36 : 24)
-                            }
-                        }
+                    let horizontalPadding = AppLayout.landscapeGutter
+                    let columnSpacing: CGFloat = isPad ? 48 : 24
+                    let artworkSide = min(isPad ? 230 : 170,
+                                          max(isPad ? 150 : 110, proxy.size.height * 0.42))
+                    let stepWidth = min(contentWidth,
+                        max(280, proxy.size.width - horizontalPadding * 2
+                            - artworkSide - columnSpacing))
+
+                    HStack(alignment: .center, spacing: columnSpacing) {
+                        welcomeArtwork(size: artworkSide)
+                        stepPanel(availableWidth: stepWidth)
+                            .frame(width: stepWidth)
                     }
-                    // On normal-height screens this fills the viewport and
-                    // centres the welcome content. On smaller screens the
-                    // content simply grows taller and remains scrollable.
+                    .padding(.horizontal, horizontalPadding)
+                    // Reserve the flag and back-button band so a long title
+                    // never slides underneath either control.
+                    .padding(.top, isPad ? 76 : 60)
+                    .padding(.bottom, isPad ? 28 : 18)
+                    .frame(maxWidth: AppLayout.landscapeContentWidth)
                     .frame(maxWidth: .infinity, minHeight: proxy.size.height, alignment: .center)
                 }
                 .scrollBounceBehavior(.basedOnSize)
@@ -121,11 +101,11 @@ struct OnboardingView: View {
     }
 
     @ViewBuilder
-    private func stepPanel(availableWidth: CGFloat, usesTwoColumns: Bool) -> some View {
+    private func stepPanel(availableWidth: CGFloat) -> some View {
         Group {
             switch step {
             case 0: nameStep
-            case 1: subjectStep(usesTwoColumns: usesTwoColumns)
+            case 1: subjectStep
             default: practiceModeStep(availableWidth: availableWidth)
             }
         }
@@ -193,11 +173,11 @@ struct OnboardingView: View {
 
             Button("common.continue") { goToSubjects() }
                 .buttonStyle(OnboardingButtonStyle(isPad: isPad))
-                .frame(maxWidth: isPad ? 360 : .infinity)
+                .frame(width: isPad ? 260 : 210)
         }
     }
 
-    private func subjectStep(usesTwoColumns: Bool) -> some View {
+    private var subjectStep: some View {
         VStack(spacing: 14) {
             OnboardingTitle(
                 text: L("onboarding.subject.title"),
@@ -211,13 +191,10 @@ struct OnboardingView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.bottom, 4)
 
-            LazyVGrid(
-                columns: Array(
-                    repeating: GridItem(.flexible(), spacing: 12),
-                    count: usesTwoColumns ? 2 : 1
-                ),
-                spacing: usesTwoColumns ? 12 : 8
-            ) {
+            LazyVGrid(columns: [
+                GridItem(.flexible(), spacing: isPad ? 12 : 9),
+                GridItem(.flexible(), spacing: isPad ? 12 : 9)
+            ], spacing: isPad ? 12 : 9) {
                 ForEach(MathTopic.allCases) { option in
                     Button {
                         topicRaw = option.rawValue
@@ -235,7 +212,7 @@ struct OnboardingView: View {
                                 .foregroundStyle(.secondary)
                         }
                         .padding(.horizontal, isPad ? 26 : 16)
-                        .frame(maxWidth: .infinity, minHeight: isPad ? 72 : 54)
+                        .frame(maxWidth: .infinity, minHeight: isPad ? 68 : 52)
                         .background(.white.opacity(0.78), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     }
                     .buttonStyle(OnboardingOptionStyle())

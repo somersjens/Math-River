@@ -63,33 +63,34 @@ struct ResultView: View {
     var body: some View {
         ZStack {
             Color.black
-                .opacity(isPresented ? 0.56 : 0)
+                .opacity(isPresented ? 0.30 : 0)
                 .ignoresSafeArea()
-                .animation(.easeOut(duration: 0.24), value: isPresented)
+                .animation(.easeInOut(duration: 0.42), value: isPresented)
+
+            LinearGradient(
+                colors: [character.deepColor.opacity(isPresented ? 0.14 : 0),
+                         .clear,
+                         character.tintColor.opacity(isPresented ? 0.08 : 0)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
 
             GeometryReader { proxy in
                 ScrollView {
-                    Group {
-                        if AppLayout.isLandscape(proxy.size) {
-                            landscapeCard
-                                .padding(isPad ? 28 : 18)
-                                .frame(maxWidth: isPad ? 920 : 800)
-                        } else {
-                            card
-                                .padding(26 * scale)
-                                .frame(maxWidth: 400 * scale)
-                        }
-                    }
+                    landscapeCard
+                        .padding(22 * scale)
+                        .frame(maxWidth: isPad ? 820 : 700)
                         .resultCardSurface(character: character)
-                        .padding(isPad ? 22 : 12)
+                        .padding(24)
                         .frame(maxWidth: .infinity)
                         .frame(minHeight: proxy.size.height, alignment: .center)
                 }
                 .scrollBounceBehavior(.basedOnSize)
             }
             .opacity(isPresented ? 1 : 0)
-            .scaleEffect(isPresented ? 1 : 0.93)
-            .offset(y: isPresented ? 0 : 18)
+            .scaleEffect(isPresented ? 1 : 0.965)
+            .offset(y: isPresented ? 0 : 14)
 
             // Layered above the card, so the burst rains over the result rather
             // than behind it. It starts once the card entrance is underway.
@@ -121,54 +122,72 @@ struct ResultView: View {
         }
     }
 
-    private var card: some View {
-        VStack(spacing: 0) {
-            resultIllustration
-                .accessibilityHidden(true)
-                .padding(.bottom, 18 * scale)
-
-            titleBlock
-
-            scoreSummary
-                .padding(.top, 22 * scale)
-
-            if !result.unlockedCharacterIDs.isEmpty {
-                unlockedRow
-                    .padding(.top, 20 * scale)
-            }
-
-            buttons
-                .padding(.top, 24 * scale)
-        }
-    }
-
-    /// End-of-run information is split across the wide screen. The celebratory
-    /// art and next actions stay together on the leading side; the score and
-    /// recommendation remain readable at full size on the trailing side.
+    /// The result, the explanation and the score form one reading column.
+    /// The action side contains actions only.
     private var landscapeCard: some View {
-        HStack(alignment: .center, spacing: isPad ? 30 : 20) {
+        HStack(alignment: .center, spacing: 28 * scale) {
             VStack(spacing: 0) {
-                resultIllustration
+                characterBadge
                     .accessibilityHidden(true)
-                    .padding(.bottom, isPad ? 14 : 8)
+                    .padding(.bottom, -6 * scale)
+
                 titleBlock
-                Spacer(minLength: isPad ? 18 : 10)
-                buttons
-            }
-            .frame(maxWidth: isPad ? 340 : 270)
 
-            Rectangle()
-                .fill(character.deepColor.opacity(0.12))
-                .frame(width: 1)
-
-            VStack(spacing: isPad ? 18 : 12) {
                 scoreSummary
+                    .padding(.top, 14 * scale)
+
                 if !result.unlockedCharacterIDs.isEmpty {
                     unlockedRow
+                        .padding(.top, 12 * scale)
                 }
             }
             .frame(maxWidth: .infinity)
+
+            Rectangle()
+                .fill(character.deepColor.opacity(0.14))
+                .frame(width: 1, height: isPad ? 280 : 220)
+
+            buttons
+                .frame(width: isPad ? 250 : 210)
         }
+    }
+
+    /// Same treatment as the premium preview: a soft glow, a thin ring and the
+    /// artwork floating free, so the end card belongs to the same landscape
+    /// family as the rest of the menus.
+    private var characterBadge: some View {
+        let heroSize = 108 * scale
+        return ZStack {
+            if isCompleted {
+                Text(verbatim: "✦")
+                    .font(.system(size: 18 * scale, weight: .bold))
+                    .foregroundStyle(character.color.opacity(0.68))
+                    .offset(x: -heroSize * 0.42, y: -heroSize * 0.28)
+                Text(verbatim: "✦")
+                    .font(.system(size: 14 * scale, weight: .bold))
+                    .foregroundStyle(character.color.opacity(0.68))
+                    .offset(x: heroSize * 0.44, y: -heroSize * 0.12)
+            }
+            Circle()
+                .fill(RadialGradient(
+                    colors: [character.color.opacity(0.35), character.color.opacity(0.05)],
+                    center: .center, startRadius: 6, endRadius: heroSize * 0.8
+                ))
+                .frame(width: heroSize, height: heroSize)
+            Circle()
+                .stroke(character.color.opacity(0.30), lineWidth: 2)
+                .frame(width: heroSize * 0.92, height: heroSize * 0.92)
+            character.artwork
+                .resizable()
+                .scaledToFit()
+                .frame(width: heroSize * 0.86, height: heroSize * 0.86)
+                .shadow(color: character.deepColor.opacity(0.25), radius: 12, y: 7)
+                .scaleEffect(isPresented ? 1 : 0.4)
+                .rotationEffect(.degrees(isPresented ? 0 : -18))
+                .animation(.spring(response: 0.55, dampingFraction: 0.55),
+                           value: isPresented)
+        }
+        .frame(width: heroSize, height: heroSize)
     }
 
     private var titleBlock: some View {
@@ -186,45 +205,29 @@ struct ResultView: View {
                     .frame(maxWidth: .infinity)
             }
 
+            encouragementRow
+        }
+    }
+
+    private var encouragementRow: some View {
+        HStack(spacing: 6 * scale) {
+            starOrnament
             Text(verbatim: encouragement)
-                .font(.system(size: (isCompleted ? 17 : 20) * textScale,
+                .font(.system(size: (isCompleted ? 13 : 14) * textScale,
                               weight: isCompleted ? .medium : .semibold))
                 .foregroundStyle(character.deepColor.opacity(0.64))
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
-                .minimumScaleFactor(0.82)
-                .frame(minHeight: 30 * scale)
+                .minimumScaleFactor(0.8)
+            starOrnament
         }
+        .frame(minHeight: 20 * scale)
     }
 
-    @ViewBuilder
-    private var resultIllustration: some View {
-        if isCompleted {
-            ZStack {
-                Text(verbatim: "✦")
-                    .font(.system(size: 25 * scale, weight: .bold))
-                    .foregroundStyle(character.color.opacity(0.68))
-                    .offset(x: -54 * scale, y: -20 * scale)
-                Text(verbatim: "✦")
-                    .font(.system(size: 20 * scale, weight: .bold))
-                    .foregroundStyle(character.color.opacity(0.68))
-                    .offset(x: 53 * scale, y: -8 * scale)
-                character.artwork
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 156 * scale, height: 110.4 * scale)
-                    .scaleEffect(isPresented ? 1 : 0.4)
-                    .rotationEffect(.degrees(isPresented ? 0 : -25))
-                    .animation(.spring(response: 0.55, dampingFraction: 0.5),
-                               value: isPresented)
-            }
-            .frame(height: 110.4 * scale)
-        } else {
-            character.artwork
-                .resizable()
-                .scaledToFit()
-                .frame(width: 156 * scale, height: 110.4 * scale)
-        }
+    private var starOrnament: some View {
+        Image(systemName: "star.fill")
+            .font(.system(size: 10 * textScale, weight: .semibold))
+            .foregroundStyle(character.color.opacity(0.5))
     }
 
     /// "×7 complete!" — where the "×7" is a drawn label (a stacked fraction, or
