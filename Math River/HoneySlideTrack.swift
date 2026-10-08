@@ -62,13 +62,14 @@ enum HoneySlideTuning {
     static let steeringResponse: CGFloat = 11.5
     static let steeringDragScale: CGFloat = 2.15
     static let playerFootprintRadius: CGFloat = 0.85
-    static let railClearance: CGFloat = 0.25
-    static let maximumPlayerLateral: CGFloat = 0.91
+    static let railClearance: CGFloat = 0
+    static let maximumPlayerLateral: CGFloat = 1
+    /// The middle stays broad enough to steer and read as a lane; outside this
+    /// point the surface rises continuously into the attached rim.
+    static let troughFloorHalfFraction: CGFloat = 0.44
     /// Visual lift above the sampled honey surface, expressed as a fraction
-    /// of the donut sprite. The front honey lip then covers seven percent of
-    /// the donut to sell a small, viscous immersion rather than hovering.
+    /// of the donut sprite.
     static let playerRideHeightFraction: CGFloat = 0.08
-    static let playerImmersionFraction: CGFloat = 0.07
     static let lateralDrag: CGFloat = 1.55
     /// Floor for lateral speed. Wide sections scale above this value so adding
     /// physical room does not make a full-width move take longer.
@@ -109,6 +110,12 @@ enum HoneySlideTuning {
         let halfWidth = max(0.001, worldTrackHalfWidth * width)
         let footprintLimit = 1 - (playerFootprintRadius + railClearance) / halfWidth
         return min(maximumPlayerLateral, max(0.68, footprintLimit))
+    }
+
+    static func troughDepthFactor(at lateral: CGFloat) -> CGFloat {
+        let distance = min(1, abs(lateral))
+        guard distance > troughFloorHalfFraction else { return 1 }
+        return max(0, (1 - distance) / (1 - troughFloorHalfFraction))
     }
 
     static func maximumLateralSpeed(for width: CGFloat) -> CGFloat {
@@ -257,7 +264,7 @@ struct HoneySlideSegment: Identifiable {
          lateralShift: CGFloat = 0,
          heightDelta: CGFloat = 0,
          bendAmplitude: CGFloat = 0,
-         troughDepth: CGFloat = 0.10,
+         troughDepth: CGFloat = 0.16,
          railHeight: CGFloat = 0.13,
          banking: CGFloat = 0,
          elevationUndulation: CGFloat = 0,
@@ -394,16 +401,16 @@ struct HoneySlideRoute {
                           heightDelta: -14, cameraLookAhead: 1.08),
         HoneySlideSegment("long-left", kind: .curve, length: 168, width: 1.36,
                           lateralShift: -0.72, heightDelta: -16, bendAmplitude: -0.24,
-                          troughDepth: 0.12, banking: -0.10),
+                          troughDepth: 0.16, banking: -0.10),
         HoneySlideSegment("broad-right", kind: .curve, length: 190, width: 1.36,
                           lateralShift: 1.18, heightDelta: -18, bendAmplitude: 0.30,
-                          troughDepth: 0.12, banking: 0.11),
+                          troughDepth: 0.16, banking: 0.11),
         HoneySlideSegment("gentle-s", kind: .sCurve, length: 184, width: 1.36,
                           heightDelta: -18, bendAmplitude: 0.38,
-                          troughDepth: 0.12, banking: 0.08),
+                          troughDepth: 0.16, banking: 0.08),
         HoneySlideSegment("return-left", kind: .curve, length: 164, width: 1.36,
                           lateralShift: -0.46, heightDelta: -16, bendAmplitude: -0.22,
-                          troughDepth: 0.12, banking: -0.10),
+                          troughDepth: 0.16, banking: -0.10),
         HoneySlideSegment("wide-home", kind: .answerApproach, length: 132, width: 1.36,
                           heightDelta: -14, cameraLookAhead: 1.08)
     ])
@@ -572,6 +579,7 @@ struct HoneySlideRoute {
         // The visible honey floor sits inside the trough. Modelling that depth
         // here keeps the sprite, wake and debug sample on the same surface.
         let troughDepth = halfWidth * frame.sample.troughDepth
+            * HoneySlideTuning.troughDepthFactor(at: lateral)
         let position = frame.position
             + surfaceRight * (halfWidth * lateral)
             - surfaceNormal * troughDepth

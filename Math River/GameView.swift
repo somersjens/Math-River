@@ -98,7 +98,6 @@ struct GameView: View {
     /// Raised by the cap button once points have been earned, because a scored
     /// run cannot be rewound into a lesson.
     @State private var showsTutorialNotice = false
-    @State private var chapterAnnouncement: HoneyRunChapter?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -182,14 +181,6 @@ struct GameView: View {
                     .zIndex(3)
             }
 
-            if let chapterAnnouncement, !showsIntro, !showsResult {
-                HoneyChapterAnnouncement(chapter: chapterAnnouncement,
-                                         theme: character,
-                                         isPad: isPad)
-                    .transition(.opacity.combined(with: .scale(scale: 0.94)))
-                    .zIndex(4)
-            }
-
         }
         .animation(.easeInOut(duration: 0.28), value: model.isGameOver)
         .animation(.easeInOut(duration: 0.25), value: showsIntro)
@@ -222,18 +213,6 @@ struct GameView: View {
                 playsLevelCompletion = true
             } else {
                 showsResult = true
-            }
-        }
-        .onChange(of: model.roundNumber) { roundNumber in
-            let chapter = HoneyRunChapter.chapter(roundNumber: roundNumber,
-                                                  maximumRounds: model.maximumRounds)
-            guard roundNumber == 1 || roundNumber == 5 || roundNumber == 9 else { return }
-            withAnimation(.spring(response: 0.42, dampingFraction: 0.82)) {
-                chapterAnnouncement = chapter
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
-                guard chapterAnnouncement == chapter else { return }
-                withAnimation(.easeOut(duration: 0.28)) { chapterAnnouncement = nil }
             }
         }
         .onDisappear {
@@ -577,28 +556,6 @@ struct HoneyFlowMeter: View {
         .animation(.spring(response: 0.34, dampingFraction: 0.62), value: burstID)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(L("Honey Flow: \(progress) of \(GameConfig.honeyFlowThreshold)")))
-    }
-}
-
-private struct HoneyChapterAnnouncement: View {
-    let chapter: HoneyRunChapter
-    let theme: AnimalCharacter
-    let isPad: Bool
-
-    var body: some View {
-        VStack {
-            Spacer()
-            Text(verbatim: L(key: chapter.titleKey))
-                .font(.system(size: isPad ? 26 : 19, weight: .heavy, design: .rounded))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 10)
-                .background(theme.deepColor.opacity(0.86), in: Capsule())
-                .overlay(Capsule().stroke(Color.yellow.opacity(0.7), lineWidth: 1.5))
-                .shadow(color: .black.opacity(0.24), radius: 10, y: 5)
-            Spacer().frame(height: isPad ? 130 : 92)
-        }
-        .allowsHitTesting(false)
     }
 }
 

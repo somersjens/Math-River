@@ -158,7 +158,6 @@ private struct RiverWorld: View {
             playerContactUnderlay
             honeyFlowTrail
             boatLayer
-            playerContactLip
             splashes
                 .zIndex(31)
             rewards
@@ -292,33 +291,6 @@ private struct RiverWorld: View {
             .position(x: point.x,
                       y: point.y + arena.entrance * size * 1.6)
             .zIndex(10)
-    }
-
-    private var playerContactLip: some View {
-        let surface = projection.playerSurface(lateral: arena.displayLateral)
-        let size = playerSize
-        let presence = max(0, 1 - arena.entrance)
-        return Path { path in
-            path.move(to: CGPoint(x: 0, y: size * 0.005))
-            path.addQuadCurve(to: CGPoint(x: size * 0.76, y: size * 0.005),
-                              control: CGPoint(x: size * 0.38, y: size * 0.13))
-        }
-        .stroke(
-            LinearGradient(colors: [
-                Color(red: 0.90, green: 0.42, blue: 0.015),
-                Color(red: 1.00, green: 0.76, blue: 0.08),
-                Color(red: 0.90, green: 0.42, blue: 0.015)
-            ], startPoint: .leading, endPoint: .trailing),
-            style: StrokeStyle(lineWidth: size * HoneySlideTuning.playerImmersionFraction,
-                               lineCap: .round)
-        )
-        .frame(width: size * 0.76, height: size * 0.15)
-        .rotationEffect(.degrees(surface.surfaceRollDegrees))
-        .position(x: surface.contactPoint.x,
-                  y: surface.contactPoint.y + size * 0.015)
-        .opacity(Double(presence))
-        .allowsHitTesting(false)
-        .zIndex(11)
     }
 
     private var splashes: some View {
@@ -923,7 +895,9 @@ private struct RiverWater: View {
         let perspective = projected.scale
         let bands = projected.bandEdges.map { band in
             let span = max(1, band.right - band.left)
-            let inset = span * (0.090 + 0.030 * near)
+            // A wide, flat-enough center transitions into sloped sides that
+            // meet the rim. This is the same cross-section the rider samples.
+            let inset = span * ((1 - HoneySlideTuning.troughFloorHalfFraction) * 0.5)
             let depth = (7 + 20 * near) * perspective
                 * (sample.troughDepth / 0.10)
             let fullLeft = projected.center - projected.halfWidth
@@ -1181,7 +1155,10 @@ private struct RiverWater: View {
             let bSample = bSlice.projected.track
             guard aSample.hasSurface, bSample.hasSurface else { continue }
             let detailScale = min(aSlice.projected.scale, bSlice.projected.scale)
-            guard detailScale > 0.105 else { continue }
+            // Keep both rims connected all the way into the vanishing point.
+            // Dropping them at the old detail threshold made the track appear
+            // to end halfway down the screen instead of near the 1/3 horizon.
+            guard detailScale > 0.03 else { continue }
             let railPresence = (aSample.railVisibility + bSample.railVisibility) * 0.5
             guard railPresence > 0.015 else { continue }
             let matched = matchedSections(aSlice.bands, bSlice.bands)
@@ -1192,16 +1169,8 @@ private struct RiverWater: View {
                 let a = aBands[bandIndex]
                 let b = bBands[bandIndex]
                 for side in 0...1 {
-                    var start = side == 0 ? a.outerLeft : a.outerRight
-                    var end = side == 0 ? b.outerLeft : b.outerRight
-                    let liftA = (2 + 9 * aSlice.projected.nearness)
-                        * aSlice.projected.scale * (aSample.railHeight / 0.13)
-                        * aSample.railVisibility
-                    let liftB = (2 + 9 * bSlice.projected.nearness)
-                        * bSlice.projected.scale * (bSample.railHeight / 0.13)
-                        * bSample.railVisibility
-                    start.y -= liftA
-                    end.y -= liftB
+                    let start = side == 0 ? a.outerLeft : a.outerRight
+                    let end = side == 0 ? b.outerLeft : b.outerRight
                     var rail = Path()
                     rail.move(to: start)
                     rail.addLine(to: end)

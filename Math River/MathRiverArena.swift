@@ -115,6 +115,36 @@ struct RiverPot: Identifiable, Equatable {
     var grabFlight: CGFloat = 0
 }
 
+/// Chooses one unambiguous answer when hit areas touch. The score represents
+/// the shared part of the rider's lateral and travel windows, so array order
+/// can never decide which answer was meant.
+enum RiverAnswerCollision {
+    static func bestOverlapIndex(in pots: [RiverPot],
+                                 riderLateral: CGFloat,
+                                 boatTravel: CGFloat,
+                                 lateralSlop: CGFloat,
+                                 travelSlop: CGFloat) -> Int? {
+        guard lateralSlop > 0, travelSlop > 0 else { return nil }
+
+        var bestIndex: Int?
+        var bestScore: CGFloat = 0
+
+        for index in pots.indices where !pots[index].hit {
+            let lateralOverlap = lateralSlop - abs(riderLateral - pots[index].lateral)
+            let travelOverlap = travelSlop - abs(boatTravel - pots[index].travel)
+            guard lateralOverlap > 0, travelOverlap > 0 else { continue }
+
+            let score = (lateralOverlap / lateralSlop) * (travelOverlap / travelSlop)
+            if score > bestScore {
+                bestScore = score
+                bestIndex = index
+            }
+        }
+
+        return bestIndex
+    }
+}
+
 struct RiverSplash: Identifiable, Equatable {
     let id: UUID
     var age: Double
@@ -221,6 +251,7 @@ final class MathRiverArena: ObservableObject {
     private var pendingRound: GameRound?
     private var lastRound: GameRound?
     private var waveResolved = false
+    private var answerSelectionCommitted = false
     private var waveFinishing = false
     private var isReeling = false
     private var gapRemaining: Double = 0
@@ -488,6 +519,7 @@ final class MathRiverArena: ObservableObject {
         followFishers()
         seatSides()
         waveResolved = false
+        answerSelectionCommitted = false
         waveFinishing = false
         isReeling = false
         reelLift = 0
@@ -881,32 +913,36 @@ final class MathRiverArena: ObservableObject {
     }
 
     private func resolveHits() {
-        guard !waveResolved else { return }
+        guard !waveResolved, !answerSelectionCommitted else { return }
         let boatTravel: CGFloat = 0
-        for i in pots.indices {
-            let pot = pots[i]
-            guard !pot.hit else { continue }
-            let near = abs(pot.travel - boatTravel) < RiverConfig.hitTravel
-            let trackWidth = HoneySlideRoute.verticalSlice.sample(at: scroll).width
-            let hitSlop = HoneySlideTuning.answerHitLateralSlop(for: trackWidth)
-            let aligned = abs(displayLateral - pot.lateral) < hitSlop
-            guard near && aligned else { continue }
-            pots[i].hit = true
-            pots[i].hitAge = 0.001
-            pots[i].grabFlight = 0.001
-            emitSplash(at: project(lateral: pot.lateral, travel: pot.travel),
-                       honey: pot.isCorrect)
-            if pot.isCorrect {
-                waveResolved = true
-                emitReward(from: project(lateral: pot.lateral, travel: pot.travel))
-                yankEveryRod()
-            } else {
-                pots[i].fisherReact = 0.45
-            }
-            _ = onAnswer?(pot.optionID)
-            onTutorialEvent?(.hitPot)
-            return
+        let trackWidth = HoneySlideRoute.verticalSlice.sample(at: scroll).width
+        let hitSlop = HoneySlideTuning.answerHitLateralSlop(for: trackWidth)
+        guard let index = RiverAnswerCollision.bestOverlapIndex(
+            in: pots,
+            riderLateral: displayLateral,
+            boatTravel: boatTravel,
+            lateralSlop: hitSlop,
+            travelSlop: RiverConfig.hitTravel
+        ) else { return }
+
+        // A row represents one answer attempt. Once its strongest overlap is
+        // selected, neighbouring stones cannot fire on following frames.
+        answerSelectionCommitted = true
+        let pot = pots[index]
+        pots[index].hit = true
+        pots[index].hitAge = 0.001
+        pots[index].grabFlight = 0.001
+        emitSplash(at: project(lateral: pot.lateral, travel: pot.travel),
+                   honey: pot.isCorrect)
+        if pot.isCorrect {
+            waveResolved = true
+            emitReward(from: project(lateral: pot.lateral, travel: pot.travel))
+            yankEveryRod()
+        } else {
+            pots[index].fisherReact = 0.45
         }
+        _ = onAnswer?(pot.optionID)
+        onTutorialEvent?(.hitPot)
     }
 
     private func tickEffects(dt: Double) {
@@ -1137,7 +1173,7 @@ struct RiverProjection {
         // Pitch follows only part of the track's vertical change. Yaw follows
         // the spline, while world-up remains stable, so a 30° drop still reads
         // as a 30° drop against trees, cliffs and the horizon.
-        let pitchFollow: CGFloat = 0.36
+        let pitchFollow: CGFloat = 1.35
         let aim = HoneyVector3(
             x: authoredAim.x,
             y: current.position.y
@@ -1175,7 +1211,7 @@ struct RiverProjection {
         let horizontalForward = sqrt(cameraForward.x * cameraForward.x
                                      + cameraForward.z * cameraForward.z)
         let pitch = atan2(cameraForward.y, max(0.001, horizontalForward))
-        return min(size.height * 0.31,
+        return min(size.height / 3,
                    max(size.height * 0.10, principalY + tan(pitch) * focalLength))
     }
     var boatY: CGFloat { size.height * 0.79 }
