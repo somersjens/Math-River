@@ -31,8 +31,6 @@ struct MathRiverPlayfield: View {
     let scoreTarget: CGPoint?
     let onAnswer: (UUID) -> Bool
     let onRewardArrived: () -> Void
-    let onBranchHoney: () -> Void
-    let onLanding: () -> Void
     let onEntranceComplete: () -> Void
     var onLevelCompletionStarted: () -> Void = {}
     let onLevelCompletionFinished: () -> Void
@@ -121,8 +119,6 @@ struct MathRiverPlayfield: View {
     private func bindArena() {
         arena.onAnswer = onAnswer
         arena.onRewardArrived = onRewardArrived
-        arena.onBranchHoney = onBranchHoney
-        arena.onLanding = onLanding
         arena.onWaveComplete = onWaveComplete
         arena.onTutorialEvent = onTutorialEvent
     }
@@ -167,10 +163,6 @@ private struct RiverWorld: View {
                 .zIndex(31)
             rewards
                 .zIndex(32)
-            if projection.sample(for: 0).kind == .tunnel {
-                tunnelRestOverlay
-                    .zIndex(40)
-            }
 #if DEBUG
             if HoneySlideDebugState.enabled {
                 HoneySlidePerformanceOverlay(text: arena.debugPerformanceText)
@@ -260,21 +252,6 @@ private struct RiverWorld: View {
         .zIndex(8)
     }
 
-    private var tunnelRestOverlay: some View {
-        RadialGradient(colors: [.clear, Color.black.opacity(0.48)],
-                       center: .center, startRadius: 35, endRadius: projection.size.width * 0.72)
-            .overlay(alignment: .top) {
-                Text(verbatim: L(key: "Breathe — next question ahead"))
-                    .font(.system(size: isPad ? 18 : 13, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.9))
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 7)
-                    .background(.black.opacity(0.32), in: Capsule())
-                    .padding(.top, projection.size.height * 0.22)
-            }
-            .allowsHitTesting(false)
-    }
-
     private var playerContactUnderlay: some View {
         let surface = projection.playerSurface(lateral: arena.displayLateral)
         let size = playerSize
@@ -290,8 +267,7 @@ private struct RiverWorld: View {
         .frame(width: size * 0.78, height: size * 0.17)
         .rotationEffect(.degrees(surface.surfaceRollDegrees))
         .position(surface.contactPoint)
-        .opacity(surface.trackWidth > 0 && projection.sample(for: 0).hasSurface
-                 ? Double(presence * (1 - arena.jumpLift * 5)) : 0)
+        .opacity(surface.trackWidth > 0 ? Double(presence) : 0)
         .allowsHitTesting(false)
         .zIndex(9)
     }
@@ -313,7 +289,6 @@ private struct RiverWorld: View {
             .rotation3DEffect(.degrees(arena.boatPitch), axis: (x: 1, y: 0, z: 0),
                               perspective: 0.28)
             .rotationEffect(.degrees(surface.surfaceRollDegrees + arena.boatRoll))
-            .scaleEffect(1 + arena.jumpLift * 0.55 + arena.landingImpact * 0.025)
             .position(x: point.x,
                       y: point.y + arena.entrance * size * 1.6)
             .zIndex(10)
@@ -341,8 +316,7 @@ private struct RiverWorld: View {
         .rotationEffect(.degrees(surface.surfaceRollDegrees))
         .position(x: surface.contactPoint.x,
                   y: surface.contactPoint.y + size * 0.015)
-        .opacity(projection.sample(for: 0).hasSurface
-                 ? Double(presence * (1 - arena.jumpLift * 5)) : 0)
+        .opacity(Double(presence))
         .allowsHitTesting(false)
         .zIndex(11)
     }
@@ -867,8 +841,6 @@ private struct RiverWater: View {
         let wild = 1 - calmness
         drawFlowHighlights(in: &context, wild: wild, quality: quality)
         drawRailings(in: &context, slices: slices)
-        drawSplitNoses(in: &context, slices: slices)
-        drawHoneyfalls(in: &context, slices: slices)
         drawHangingShadows(in: &context)
         drawBoatWake(in: &context, wild: wild)
         drawHorizonMist(in: &context)
@@ -938,41 +910,10 @@ private struct RiverWater: View {
         var centerGlow = Path()
     }
 
-    private func midpoint(_ a: CGPoint, _ b: CGPoint) -> CGPoint {
-        CGPoint(x: (a.x + b.x) * 0.5, y: (a.y + b.y) * 0.5)
-    }
-
-    /// When a normal channel becomes two branches (or two merge back into
-    /// one), map each branch to the corresponding half of the single channel.
-    /// Repeating the whole single section for both branches produced the old
-    /// X-shaped overlap and visible crossbar at the transition.
-    private func splitSection(_ section: TrackBandSection) -> [TrackBandSection] {
-        let outerCenter = midpoint(section.outerLeft, section.outerRight)
-        let floorCenter = midpoint(section.floorLeft, section.floorRight)
-        let undersideCenter = midpoint(section.undersideLeft, section.undersideRight)
-        return [
-            TrackBandSection(outerLeft: section.outerLeft,
-                             floorLeft: section.floorLeft,
-                             floorRight: floorCenter,
-                             outerRight: outerCenter,
-                             undersideLeft: section.undersideLeft,
-                             undersideRight: undersideCenter),
-            TrackBandSection(outerLeft: outerCenter,
-                             floorLeft: floorCenter,
-                             floorRight: section.floorRight,
-                             outerRight: section.outerRight,
-                             undersideLeft: undersideCenter,
-                             undersideRight: section.undersideRight)
-        ]
-    }
-
     private func matchedSections(_ a: [TrackBandSection],
                                  _ b: [TrackBandSection])
     -> ([TrackBandSection], [TrackBandSection]) {
-        if a.count == b.count { return (a, b) }
-        if a.count == 1, b.count == 2 { return (splitSection(a[0]), b) }
-        if a.count == 2, b.count == 1 { return (a, splitSection(b[0])) }
-        return (a, b)
+        (a, b)
     }
 
     private func trackSlice(at travel: CGFloat) -> TrackSlice {
@@ -1253,27 +1194,20 @@ private struct RiverWater: View {
                 for side in 0...1 {
                     var start = side == 0 ? a.outerLeft : a.outerRight
                     var end = side == 0 ? b.outerLeft : b.outerRight
-                    let isInnerRail = count == 2
-                        && ((bandIndex == 0 && side == 1) || (bandIndex == 1 && side == 0))
-                    let innerFactorA: CGFloat = isInnerRail
-                        ? pow(aSample.splitAmount, 0.85) : 1
-                    let innerFactorB: CGFloat = isInnerRail
-                        ? pow(bSample.splitAmount, 0.85) : 1
                     let liftA = (2 + 9 * aSlice.projected.nearness)
                         * aSlice.projected.scale * (aSample.railHeight / 0.13)
-                        * innerFactorA * aSample.railVisibility
+                        * aSample.railVisibility
                     let liftB = (2 + 9 * bSlice.projected.nearness)
                         * bSlice.projected.scale * (bSample.railHeight / 0.13)
-                        * innerFactorB * bSample.railVisibility
+                        * bSample.railVisibility
                     start.y -= liftA
                     end.y -= liftB
                     var rail = Path()
                     rail.move(to: start)
                     rail.addLine(to: end)
-                    let dividerWidth = isInnerRail ? max(0.12, innerFactorB) : 1
-                    let width = max(isInnerRail ? 0.22 : 0.48,
+                    let width = max(0.48,
                                     (3 + 7 * bSlice.projected.nearness)
-                                    * bSlice.projected.scale * dividerWidth
+                                    * bSlice.projected.scale
                                     * max(0.16, railPresence))
                     context.stroke(rail, with: .color(Color.black.opacity(0.34 * Double(railPresence))),
                                    style: StrokeStyle(lineWidth: width * 1.72,
@@ -1305,8 +1239,7 @@ private struct RiverWater: View {
             let travel = 1.34 - share * 1.40
             let slice = trackSlice(at: travel)
             let sample = slice.projected.track
-            guard sample.hasSurface, sample.kind != .landing,
-                  slice.projected.scale > 0.15 else { continue }
+            guard sample.hasSurface, slice.projected.scale > 0.15 else { continue }
             let y = slice.projected.y
             let drop = (24 + 54 * slice.projected.nearness) * slice.projected.scale
             let inset = max(2, 5 * slice.projected.scale)
@@ -1338,93 +1271,6 @@ private struct RiverWater: View {
                 brace.addLine(to: CGPoint(x: right, y: y + 4))
                 context.stroke(brace, with: .color(RiverPaint.lightWood.opacity(0.52)),
                                style: StrokeStyle(lineWidth: max(1, 2.5 * slice.projected.scale)))
-            }
-        }
-    }
-
-    private func drawSplitNoses(in context: inout GraphicsContext,
-                                slices: [TrackSlice]) {
-        guard slices.count > 1 else { return }
-        for index in 0..<(slices.count - 1) {
-            let aSections = slices[index].bands
-            let bSections = slices[index + 1].bands
-            guard aSections.count != bSections.count else { continue }
-            let splitSlice = aSections.count == 2 ? slices[index] : slices[index + 1]
-            let branches = aSections.count == 2 ? aSections : bSections
-            guard branches.count == 2 else { continue }
-            let leftTip = branches[0].outerRight
-            let rightTip = branches[1].outerLeft
-            let center = midpoint(leftTip, rightTip)
-            let scale = splitSlice.projected.scale
-            let radius = max(1.8, (3.4 + 5 * splitSlice.projected.nearness) * scale)
-            let shadowRect = CGRect(x: center.x - radius * 1.22,
-                                    y: center.y - radius * 0.72,
-                                    width: radius * 2.44,
-                                    height: radius * 1.70)
-            context.fill(Path(ellipseIn: shadowRect),
-                         with: .color(Color(red: 0.34, green: 0.09, blue: 0.01).opacity(0.88)))
-            let capRect = shadowRect.insetBy(dx: radius * 0.28, dy: radius * 0.24)
-            context.fill(Path(ellipseIn: capRect),
-                         with: .color(Color(red: 0.98, green: 0.54, blue: 0.02)))
-            let glint = CGRect(x: capRect.minX + capRect.width * 0.20,
-                               y: capRect.minY + capRect.height * 0.12,
-                               width: capRect.width * 0.42,
-                               height: max(0.8, capRect.height * 0.18))
-            context.fill(Path(ellipseIn: glint),
-                         with: .color(Color(red: 1.0, green: 0.91, blue: 0.35).opacity(0.84)))
-        }
-    }
-
-    private func drawHoneyfalls(in context: inout GraphicsContext,
-                                slices: [TrackSlice]) {
-        guard slices.count > 1 else { return }
-        for index in 0..<(slices.count - 1) {
-            let here = slices[index]
-            let there = slices[index + 1]
-            guard here.projected.track.hasSurface != there.projected.track.hasSurface else { continue }
-            let edge = here.projected.track.hasSurface ? here : there
-            guard edge.projected.scale > 0.14 else { continue }
-            for band in edge.bands {
-                let left = band.outerLeft
-                let right = band.outerRight
-                let y = (left.y + right.y) * 0.5
-                let drip = 14 + 48 * edge.projected.nearness
-                for strand in 0..<5 {
-                    let t = CGFloat(strand) / 4
-                    let x = left.x + (right.x - left.x) * t
-                    var fall = Path()
-                    fall.move(to: CGPoint(x: x, y: y))
-                    fall.addCurve(to: CGPoint(x: x + CGFloat(strand - 2) * 1.5, y: y + drip),
-                                  control1: CGPoint(x: x + 3, y: y + drip * 0.35),
-                                  control2: CGPoint(x: x - 2, y: y + drip * 0.72))
-                    context.stroke(fall, with: .color(RiverPaint.body.opacity(0.72)),
-                                   style: StrokeStyle(lineWidth: max(1.2, 3 * edge.projected.scale),
-                                                      lineCap: .round))
-                }
-
-                // A layered rounded lip hides the polygon edge and makes the
-                // take-off and landing read like one thick, viscous material.
-                let scale = edge.projected.scale
-                let width = max(1.5, (2.4 + 4.4 * edge.projected.nearness) * scale)
-                let bulge = max(1.5, width * 0.34)
-                var lip = Path()
-                lip.move(to: left)
-                lip.addQuadCurve(to: right,
-                                 control: CGPoint(x: (left.x + right.x) * 0.5,
-                                                  y: y + bulge))
-                context.stroke(lip, with: .color(Color(red: 0.27, green: 0.075, blue: 0.015)
-                    .opacity(0.88)),
-                               style: StrokeStyle(lineWidth: width * 1.55,
-                                                  lineCap: .round, lineJoin: .round))
-                context.stroke(lip, with: .color(Color(red: 0.88, green: 0.35, blue: 0.01)),
-                               style: StrokeStyle(lineWidth: width * 1.14,
-                                                  lineCap: .round, lineJoin: .round))
-                let highlight = lip.applying(CGAffineTransform(translationX: 0,
-                                                               y: -width * 0.22))
-                context.stroke(highlight,
-                               with: .color(Color(red: 1.0, green: 0.84, blue: 0.22).opacity(0.92)),
-                               style: StrokeStyle(lineWidth: max(0.9, width * 0.34),
-                                                  lineCap: .round, lineJoin: .round))
             }
         }
     }
@@ -2502,7 +2348,7 @@ private struct RiverHoneycombAnswerView: View {
 
     var body: some View {
         let perspective = projection.scale(for: pot.travel)
-        let width = RiverConfig.potSize(isPad: isPad) * 1.34 * perspective
+        let width = RiverConfig.potSize(isPad: isPad) * 1.28 * perspective
         let height = width * 0.82
         let point = projection.point(lateral: pot.lateral, travel: pot.travel)
         let dismissal = min(max(max(groupDismissal, pot.reel), 0), 1)
@@ -2575,7 +2421,9 @@ private struct RiverHoneycombAnswerView: View {
         .frame(width: width, height: height)
         .scaleEffect((pot.hit ? 1.10 : 1) - fade * 0.18)
         .opacity(Double(1 - fade))
-        .position(x: point.x, y: point.y - height * 0.26 + bob)
+        // Stand the answers above the surface so the rider never hides the two
+        // middle choices while deciding. The hit point remains on the track.
+        .position(x: point.x, y: point.y - height * 1.32 + bob)
         .animation(.spring(response: 0.22, dampingFraction: 0.58), value: pot.hit)
         .allowsHitTesting(false)
     }

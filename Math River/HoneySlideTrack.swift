@@ -2,9 +2,8 @@
 //  HoneySlideTrack.swift
 //  Math River
 //
-//  A small, data-driven route model for the Honey Slide vertical slice.
-//  Rendering and player control sample this same model, so curves, railings,
-//  branch locks, jumps and answer-safe areas cannot drift apart.
+//  A small, data-driven route model for the Honey Slide MVP. Rendering and
+//  player control sample the same permanently wide, continuous track.
 //
 
 import SwiftUI
@@ -44,13 +43,24 @@ enum HoneySlideTuning {
     static let cameraNearPlane: CGFloat = 1.4
     static let perspectiveFOVDegrees: CGFloat = 74
     static let worldLateralScale: CGFloat = 22
-    /// A normal section is 23 metres wide. The previous 17.28 metre lane left
-    /// four answers visually crowded and made its usable edge space mostly
-    /// theoretical. Local authored multipliers still widen overlooks and
-    /// answer approaches without turning steering into discrete lanes.
-    static let worldTrackHalfWidth: CGFloat = 11.5
-    static let steeringResponse: CGFloat = 8.8
-    static let steeringDragScale: CGFloat = 1.85
+    /// Half-width of a multiplier-1 section, in metres. Together with the
+    /// permanent 1.36 route width, the answer corridor fills almost the whole
+    /// iPhone 17 Pro at reading distance.
+    /// `answerLayoutTravel` is that reading distance, as a fraction of the
+    /// camera look-ahead.
+    static let worldTrackHalfWidth: CGFloat = 15.263
+    static let answerLayoutTravel: CGFloat = 0.32
+    static let targetTrackScreenFraction: CGFloat = 0.98
+    static let targetAnswerScreenFraction: CGFloat = 0.84
+    /// iPhone 17 Pro point size. The two fractions above are measured here.
+    static let referenceViewport = CGSize(width: 402, height: 874)
+    /// Four stable columns on a minimum-width answer section.
+    static let innerAnswerLateral: CGFloat = 0.258
+    static let outerAnswerLateral: CGFloat = 0.774
+    /// A single drag can cross the complete track. Movement is deliberately
+    /// direct: choosing an answer should test maths, not hidden slide physics.
+    static let steeringResponse: CGFloat = 11.5
+    static let steeringDragScale: CGFloat = 2.15
     static let playerFootprintRadius: CGFloat = 0.85
     static let railClearance: CGFloat = 0.25
     static let maximumPlayerLateral: CGFloat = 0.91
@@ -59,22 +69,14 @@ enum HoneySlideTuning {
     /// the donut to sell a small, viscous immersion rather than hovering.
     static let playerRideHeightFraction: CGFloat = 0.08
     static let playerImmersionFraction: CGFloat = 0.07
-    static let curveDriftStrength: CGFloat = 0.07
-    static let maxCurveDriftAcceleration: CGFloat = 1.25
-    static let lateralDrag: CGFloat = 1.35
-    static let steeringAcceleration: CGFloat = 8.5
+    static let lateralDrag: CGFloat = 1.55
     /// Floor for lateral speed. Wide sections scale above this value so adding
     /// physical room does not make a full-width move take longer.
     static let minimumMaxLateralSpeed: CGFloat = 4.8
-    static let normalizedLateralSpeedLimit: CGFloat = 0.78
-    static let bankingDriftCompensation: CGFloat = 1.8
+    static let normalizedLateralSpeedLimit: CGFloat = 1.55
     static let railVelocityRetention: CGFloat = 0.12
     static let lateralSimulationStep: Double = 1.0 / 120.0
     static let railBounce: CGFloat = 0.10
-    static let airControl: CGFloat = 0.42
-    static let jumpHeight: CGFloat = 0.115
-    static let landingRecoveryDuration: Double = 0.52
-    static let splitCommitProgress: CGFloat = 0.42
     /// Camera follow begins only near the outer thirds. Keeping a central dead
     /// zone preserves the sensation of crossing the track; partial follow then
     /// keeps the rider and the outermost answers inside the phone viewport.
@@ -88,12 +90,13 @@ enum HoneySlideTuning {
     /// travel after the requested reading window. At nominal speed this is at
     /// most two additional seconds, usually much less.
     static let maximumAnswerCheckpointDelay: CGFloat = 72
-    /// Staying in the middle must never answer a sum by accident. This is wider
-    /// than the collision slop, leaving room for the small drift of a curve.
-    static let neutralAnswerClearance: CGFloat = 0.34
-    /// Ordinary curves may be safe to ride but are not automatically spacious
-    /// enough for four choices. Answer waves wait for at least this multiplier.
-    static let minimumAnswerTrackWidth: CGFloat = 1.12
+    /// Staying in the middle must never answer a sum by accident. This stays
+    /// just outside the hit radius, so the two inner answers can sit in the
+    /// 70% row without the center counting as a choice.
+    static let neutralAnswerClearance: CGFloat = 0.16
+    /// Every authored section is at least this wide. Answer waves can therefore
+    /// stay on their exact pacing instead of waiting for a special corridor.
+    static let minimumAnswerTrackWidth: CGFloat = 1.32
     /// Hit testing is expressed as a physical radius and converted back to the
     /// normalized projection space. A fixed normalized radius became much too
     /// forgiving as the track got wider and could overlap adjacent choices.
@@ -125,6 +128,17 @@ enum HoneySlideTuning {
         let sign: CGFloat = proposed < 0 ? -1 : 1
         let cleared = sign * max(abs(proposed), min(neutralAnswerClearance, limit))
         return min(limit, max(-limit, cleared))
+    }
+
+    static var answerColumnOffsets: [CGFloat] {
+        [-outerAnswerLateral, -innerAnswerLateral, innerAnswerLateral, outerAnswerLateral]
+    }
+
+    /// Keeps authored columns stable if a future route is even wider than the
+    /// MVP minimum. Extra width becomes breathing room beside the answer row.
+    static func answerColumnLateral(_ authored: CGFloat, trackWidth: CGFloat) -> CGFloat {
+        let relative = max(trackWidth, minimumAnswerTrackWidth) / minimumAnswerTrackWidth
+        return answerLateral(authored / relative, trackWidth: trackWidth)
     }
 }
 
@@ -182,14 +196,6 @@ enum HoneySegmentKind: String, CaseIterable {
     case wide
     case curve
     case sCurve
-    case descent
-    case narrow
-    case split
-    case branch
-    case merge
-    case jump
-    case landing
-    case tunnel
     case answerApproach
 }
 
@@ -242,7 +248,6 @@ struct HoneySlideSegment: Identifiable {
     let railings: Bool
     let speedMultiplier: CGFloat
     let cameraLookAhead: CGFloat
-    let answerOffsets: [CGFloat]
 
     init(_ id: String,
          kind: HoneySegmentKind,
@@ -258,8 +263,7 @@ struct HoneySlideSegment: Identifiable {
          elevationUndulation: CGFloat = 0,
          railings: Bool = true,
          speedMultiplier: CGFloat = 1,
-         cameraLookAhead: CGFloat = 1,
-         answerOffsets: [CGFloat] = []) {
+         cameraLookAhead: CGFloat = 1) {
         self.id = id
         self.kind = kind
         self.length = length
@@ -275,7 +279,6 @@ struct HoneySlideSegment: Identifiable {
         self.railings = railings
         self.speedMultiplier = speedMultiplier
         self.cameraLookAhead = cameraLookAhead
-        self.answerOffsets = answerOffsets
     }
 }
 
@@ -326,7 +329,6 @@ struct HoneyTrackSample {
     let center: CGFloat
     let width: CGFloat
     let elevation: CGFloat
-    let splitAmount: CGFloat
     let troughDepth: CGFloat
     let railHeight: CGFloat
     let railVisibility: CGFloat
@@ -335,44 +337,23 @@ struct HoneyTrackSample {
     let railings: Bool
     let speedMultiplier: CGFloat
     let cameraLookAhead: CGFloat
-    let answerOffsets: [CGFloat]
     /// Positive radians mean downhill. This is the local tangent of the
     /// authored elevation curve, not a physics-derived value.
     let downhillSlope: CGFloat
 
-    var isAir: Bool { kind == .jump }
     var steeringResponseMultiplier: CGFloat {
         switch kind {
-        case .straight, .wide, .answerApproach: return 1.06
-        case .curve, .sCurve, .descent: return 0.96
-        case .split, .branch, .merge, .narrow: return 0.90
-        case .landing: return 0.78
-        case .jump: return HoneySlideTuning.airControl
-        case .tunnel: return 0.94
+        case .straight, .wide, .answerApproach: return 1.08
+        case .curve, .sCurve: return 1.0
         }
     }
     var isAnswerSafe: Bool {
         guard hasSurface,
               railings,
               width >= HoneySlideTuning.minimumAnswerTrackWidth,
-              !locksBranch,
               localProgress > 0.12,
               localProgress < 0.88 else { return false }
-        switch kind {
-        case .jump, .narrow, .split, .branch, .merge, .tunnel:
-            return false
-        case .landing:
-            // Let the rider settle after touching down before asking for a
-            // precise lateral choice.
-            return localProgress > 0.35
-        case .straight, .wide, .curve, .sCurve, .descent, .answerApproach:
-            return true
-        }
-    }
-    var locksBranch: Bool {
-        kind == .branch
-            || (kind == .split && localProgress >= HoneySlideTuning.splitCommitProgress)
-            || (kind == .merge && localProgress < 0.68)
+        return true
     }
 }
 
@@ -404,72 +385,30 @@ struct HoneyTrackSurfaceSample {
     let track: HoneyTrackSample
 }
 
-struct HoneyRouteCheckpoint: Identifiable {
-    let id: String
-    let segmentID: String
-    let validRouteIDs: Set<String>
-}
-
 struct HoneySlideRoute {
     static let verticalSlice = HoneySlideRoute(segments: [
-        // A purpose-built downhill feel test: long descent, falling curves,
-        // a short drop, a ravine jump, a low landing and a final fast run.
-        HoneySlideSegment("high-start-descent", kind: .wide, length: 108, width: 1.48, endWidth: 1.12,
-                          heightDelta: -44, elevationUndulation: 2.8,
-                          cameraLookAhead: 1.10),
-        HoneySlideSegment("falling-soft-left", kind: .curve, length: 104, width: 1.12, endWidth: 1.12,
-                          lateralShift: -0.65, heightDelta: -42, bendAmplitude: -0.20,
-                          troughDepth: 0.13, banking: -0.20, elevationUndulation: -3.6,
-                          cameraLookAhead: 1.16),
-        HoneySlideSegment("short-steep-drop", kind: .descent, length: 56, width: 1.12, endWidth: 1.12,
-                          lateralShift: -0.10, heightDelta: -44, troughDepth: 0.15,
-                          elevationUndulation: 2.4,
-                          speedMultiplier: 1.10, cameraLookAhead: 1.28),
-        HoneySlideSegment("descending-right-s", kind: .sCurve, length: 124, width: 1.12, endWidth: 1.14,
-                          lateralShift: 0.75, heightDelta: -52, bendAmplitude: 0.48,
-                          troughDepth: 0.14, banking: 0.22, elevationUndulation: -4.4,
-                          cameraLookAhead: 1.18),
-        HoneySlideSegment("quiet-answer-run", kind: .answerApproach, length: 96, width: 1.14, endWidth: 1.48,
-                          heightDelta: -20, elevationUndulation: 1.6,
-                          answerOffsets: [-0.84, -0.30, 0.30, 0.84]),
-        // A short tunnel is a breathing beat between the high forest and the
-        // ravine. It is deliberately never used as an answer corridor.
-        HoneySlideSegment("forest-rest-tunnel", kind: .tunnel, length: 46, width: 1.48, endWidth: 1.28,
-                          heightDelta: -12, troughDepth: 0.14,
-                          cameraLookAhead: 1.08),
-        HoneySlideSegment("strong-valley-descent", kind: .descent, length: 84, width: 1.28, endWidth: 1.12,
-                          lateralShift: -0.25, heightDelta: -60, troughDepth: 0.15,
-                          elevationUndulation: 3.6,
-                          speedMultiplier: 1.14, cameraLookAhead: 1.30),
-        HoneySlideSegment("ravine-gap", kind: .jump, length: 24, width: 1.12, endWidth: 1.30,
-                          lateralShift: 0.05, heightDelta: -14, elevationUndulation: -1.0,
-                          railings: false,
-                          speedMultiplier: 1.10, cameraLookAhead: 1.36),
-        HoneySlideSegment("low-valley-landing", kind: .landing, length: 76, width: 1.30, endWidth: 1.12,
-                          lateralShift: 0.08, heightDelta: -24, elevationUndulation: 2.4),
-        HoneySlideSegment("ravine-answer-overlook", kind: .answerApproach, length: 78, width: 1.12, endWidth: 1.42,
-                          heightDelta: -18, elevationUndulation: 1.3,
-                          answerOffsets: [-0.84, -0.30, 0.30, 0.84]),
-        HoneySlideSegment("long-fast-honey-slide", kind: .curve, length: 124, width: 1.42, endWidth: 1.18,
-                          lateralShift: 0.12, heightDelta: -56, bendAmplitude: 0.22,
-                          troughDepth: 0.14, banking: 0.16, elevationUndulation: -4.0,
-                          speedMultiplier: 1.12, cameraLookAhead: 1.18),
-        // The finale offers a real left/right branch with one small honey
-        // pickup. Its compact length keeps every next question inside the
-        // bounded safe-corridor delay.
-        HoneySlideSegment("finale-split", kind: .split, length: 12, width: 1.18, endWidth: 1.12,
-                          heightDelta: -4, railings: true),
-        HoneySlideSegment("finale-branch", kind: .branch, length: 12, width: 1.12,
-                          lateralShift: 0.42, heightDelta: -5, railings: true),
-        HoneySlideSegment("finale-merge", kind: .merge, length: 12, width: 1.12, endWidth: 1.18,
-                          lateralShift: -0.42, heightDelta: -4, railings: true),
-        HoneySlideSegment("valley-answer-finish", kind: .answerApproach, length: 100, width: 1.18, endWidth: 1.48,
-                          lateralShift: 0, heightDelta: -24, elevationUndulation: 1.8,
-                          answerOffsets: [-0.84, -0.30, 0.30, 0.84])
+        // The MVP is intentionally boring in the best way: one continuous,
+        // permanently wide track. Only the centerline bends. There are no
+        // jumps, gaps, branches, tunnels or width traps competing with maths.
+        HoneySlideSegment("wide-opening", kind: .wide, length: 132, width: 1.36,
+                          heightDelta: -14, cameraLookAhead: 1.08),
+        HoneySlideSegment("long-left", kind: .curve, length: 168, width: 1.36,
+                          lateralShift: -0.72, heightDelta: -16, bendAmplitude: -0.24,
+                          troughDepth: 0.12, banking: -0.10),
+        HoneySlideSegment("broad-right", kind: .curve, length: 190, width: 1.36,
+                          lateralShift: 1.18, heightDelta: -18, bendAmplitude: 0.30,
+                          troughDepth: 0.12, banking: 0.11),
+        HoneySlideSegment("gentle-s", kind: .sCurve, length: 184, width: 1.36,
+                          heightDelta: -18, bendAmplitude: 0.38,
+                          troughDepth: 0.12, banking: 0.08),
+        HoneySlideSegment("return-left", kind: .curve, length: 164, width: 1.36,
+                          lateralShift: -0.46, heightDelta: -16, bendAmplitude: -0.22,
+                          troughDepth: 0.12, banking: -0.10),
+        HoneySlideSegment("wide-home", kind: .answerApproach, length: 132, width: 1.36,
+                          heightDelta: -14, cameraLookAhead: 1.08)
     ])
 
     let segments: [HoneySlideSegment]
-    let checkpoints: [HoneyRouteCheckpoint]
     let totalLength: CGFloat
     let elevationChangePerLap: CGFloat
 
@@ -508,13 +447,6 @@ struct HoneySlideRoute {
                    "Honey Slide loop widths must meet at the seam")
         }
 #endif
-        checkpoints = segments
-            .filter { !$0.answerOffsets.isEmpty }
-            .map {
-                HoneyRouteCheckpoint(id: "checkpoint-\($0.id)",
-                                     segmentID: $0.id,
-                                     validRouteIDs: ["main", "left", "right"])
-            }
 #if DEBUG
         debugValidateContinuity()
 #endif
@@ -538,24 +470,7 @@ struct HoneySlideRoute {
         }
         let edgeProgress = min(max((local - 0.68) / 0.32, 0), 1)
         let edgeBlend = smoothstep(edgeProgress)
-        let railVisibility: CGFloat
-        if segment.kind == .jump || !segment.railings {
-            railVisibility = 0
-        } else if nextSegment.kind == .jump {
-            let fade = min(max((local - 0.56) / 0.44, 0), 1)
-            railVisibility = 1 - smoothstep(fade)
-        } else if previousSegment.kind == .jump && segment.kind == .landing {
-            railVisibility = smoothstep(min(max(local / 0.34, 0), 1))
-        } else {
-            railVisibility = 1
-        }
-        let split: CGFloat
-        switch segment.kind {
-        case .split: split = eased
-        case .branch: split = 1
-        case .merge: split = 1 - eased
-        default: split = 0
-        }
+        let railVisibility: CGFloat = segment.railings ? 1 : 0
         let elevationShape = verticalShape(local)
         let previousAverageSlope = previousSegment.heightDelta / max(previousSegment.length, 0.001)
         let currentAverageSlope = segment.heightDelta / max(segment.length, 0.001)
@@ -583,20 +498,18 @@ struct HoneySlideRoute {
             elevation: startElevations[index] + hermiteElevation
                 + segment.elevationUndulation * elevationShape
                 + lap * elevationChangePerLap,
-            splitAmount: split,
             troughDepth: segment.troughDepth
                 + (nextSegment.troughDepth - segment.troughDepth) * edgeBlend,
             railHeight: segment.railHeight
                 + (nextSegment.railHeight - segment.railHeight) * edgeBlend,
             railVisibility: railVisibility,
             banking: segment.banking * CGFloat(sin(Double(local) * .pi)),
-            hasSurface: segment.kind != .jump,
+            hasSurface: true,
             railings: segment.railings,
             speedMultiplier: segment.speedMultiplier
                 + (nextSegment.speedMultiplier - segment.speedMultiplier) * edgeBlend,
             cameraLookAhead: segment.cameraLookAhead
                 + (nextSegment.cameraLookAhead - segment.cameraLookAhead) * edgeBlend,
-            answerOffsets: segment.answerOffsets,
             downhillSlope: atan2(
                 -(elevationDerivative / max(segment.length, 0.001)),
                 1
@@ -774,22 +687,14 @@ struct HoneySlideRoute {
             assert(segment.startWidth > 0 && segment.endWidth > 0,
                    "Honey Slide segments need positive width")
             assert(segment.speedMultiplier > 0, "Honey Slide speed must remain positive")
-            if segment.kind == .jump {
-                assert(!segment.railings, "Jump gaps cannot retain normal railings")
-            }
-            if !segment.answerOffsets.isEmpty {
-                assert(segment.kind == .wide || segment.kind == .answerApproach,
-                       "Answers may only spawn on safe, broad track")
-            }
+            assert(segment.startWidth >= HoneySlideTuning.minimumAnswerTrackWidth,
+                   "Answers need a permanently broad track")
         }
 
         for index in segments.indices {
             let next = segments[(index + 1) % segments.count]
             assert(abs(segments[index].endWidth - next.startWidth) < epsilon,
                    "Honey Slide width discontinuity at \(next.id)")
-            if segments[index].kind == .jump {
-                assert(next.kind == .landing, "Every Honey Slide jump needs a landing")
-            }
         }
 
         for boundary in starts.dropFirst() {
@@ -829,7 +734,7 @@ struct HoneySlideRoute {
             let sample = sample(at: CGFloat(index) / 512 * totalLength)
             assert(sample.center.isFinite && sample.width.isFinite && sample.elevation.isFinite,
                    "Honey Slide route produced non-finite geometry")
-            assert(sample.width > 0 && (0...1).contains(sample.splitAmount),
+            assert(sample.width > 0,
                    "Honey Slide route produced invalid track geometry")
         }
     }
@@ -879,7 +784,7 @@ enum HoneySlidePreviewMode {
     }
 
     /// Optional deterministic route position for simulator QA, e.g.
-    /// `-HoneySlidePreview -HoneySlidePreviewPhase 164` for the split.
+    /// `-HoneySlidePreview -HoneySlidePreviewPhase 164` for the first curve.
     static var phase: CGFloat? {
         let arguments = ProcessInfo.processInfo.arguments
         guard let index = arguments.firstIndex(of: "-HoneySlidePreviewPhase"),
@@ -963,8 +868,6 @@ struct HoneySlideDebugPreview: View {
                            scoreTarget: nil,
                            onAnswer: { _ in false },
                            onRewardArrived: {},
-                           onBranchHoney: {},
-                           onLanding: {},
                            onEntranceComplete: {},
                            onLevelCompletionFinished: {},
                            onWaveComplete: {})

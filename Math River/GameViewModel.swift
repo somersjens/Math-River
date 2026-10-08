@@ -83,7 +83,6 @@ final class GameViewModel: ObservableObject {
     @Published private(set) var honeyFlowProgress = 0
     @Published private(set) var isHoneyFlowActive = false
     @Published private(set) var honeyFlowBurstID = 0
-    @Published private(set) var routeHoneyPickupID = 0
     /// The same note while the sum it belongs to is still standing: it is not
     /// shown yet, because its answer is the one thing that must not be given
     /// away in the moment between the mistake and the next question.
@@ -470,15 +469,6 @@ final class GameViewModel: ObservableObject {
         }
     }
 
-    /// Called once when the authored route commits to a split branch.
-    func collectRouteHoney() {
-        guard engine.collectRouteHoney() else { return }
-        routeHoneyPickupID &+= 1
-        AppAudio.shared.playMenuCardTotal()
-        haptic(.light)
-        sync()
-    }
-
     /// The last answer stone of this sum has gone by. Remaining stones were allowed
     /// to drift off naturally; now the next sum may appear.
     func completeWave() {
@@ -502,13 +492,6 @@ final class GameViewModel: ObservableObject {
         }
         guard generation == token else { return }
         sync()
-    }
-
-    /// Called on the exact frame the ring touches down after a jump.
-    func landed() {
-        guard state != .intro, !isPaused, !isGameOver else { return }
-        AppAudio.shared.playLanding()
-        haptic(.landing)
     }
 
     /// Writes down the sum that was just lost, so the next one can carry it.
@@ -712,7 +695,7 @@ final class GameViewModel: ObservableObject {
         }
     }
 
-    private enum Haptic { case light, rigid, success, error, skip, combo, landing }
+    private enum Haptic { case light, rigid, success, error, skip, combo }
 
 #if canImport(UIKit)
     // Built once and kept warm. A generator created on the spot has to wake the
@@ -720,7 +703,6 @@ final class GameViewModel: ObservableObject {
     // exact main-thread frame in which an answer was taken.
     private let lightHaptic = UIImpactFeedbackGenerator(style: .light)
     private let softHaptic = UIImpactFeedbackGenerator(style: .soft)
-    private let mediumHaptic = UIImpactFeedbackGenerator(style: .medium)
     private let rigidHaptic = UIImpactFeedbackGenerator(style: .rigid)
     private let notificationHaptic = UINotificationFeedbackGenerator()
 #endif
@@ -731,7 +713,6 @@ final class GameViewModel: ObservableObject {
 #if canImport(UIKit)
         lightHaptic.prepare()
         softHaptic.prepare()
-        mediumHaptic.prepare()
         rigidHaptic.prepare()
         notificationHaptic.prepare()
 #endif
@@ -746,7 +727,6 @@ final class GameViewModel: ObservableObject {
         case .error: notificationHaptic.notificationOccurred(.error)
         case .skip: softHaptic.impactOccurred(intensity: 0.55)
         case .combo: rigidHaptic.impactOccurred(intensity: 1)
-        case .landing: mediumHaptic.impactOccurred(intensity: 0.82)
         }
         // Firing leaves the engine idle again; this keeps the *next* answer,
         // which in fast play is only a moment away, just as immediate.

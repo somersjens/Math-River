@@ -673,7 +673,6 @@ final class AppAudio: NSObject, ObservableObject {
     /// without adding more decode work to the frame loop.
     func playSkipped()          { playEffect("cardFlip") }
     func playCombo()            { playEffect("doubleScore") }
-    func playLanding()          { playEffect("doubleCard") }
     func playCardFlip()         { playEffect("cardFlip") }         // a card turns over
     func playCardReveal()       { playEffect("cardReveal") }       // the question becomes visible
     func playDoubleCardAppear() { playEffect("doubleCard") }       // the thick special card

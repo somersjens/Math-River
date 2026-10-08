@@ -99,7 +99,6 @@ struct GameView: View {
     /// run cannot be rewound into a lesson.
     @State private var showsTutorialNotice = false
     @State private var chapterAnnouncement: HoneyRunChapter?
-    @State private var showsRouteHoneyToast = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -191,11 +190,6 @@ struct GameView: View {
                     .zIndex(4)
             }
 
-            if showsRouteHoneyToast, !showsIntro, !showsResult {
-                RouteHoneyToast(theme: character, isPad: isPad)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .zIndex(4)
-            }
         }
         .animation(.easeInOut(duration: 0.28), value: model.isGameOver)
         .animation(.easeInOut(duration: 0.25), value: showsIntro)
@@ -240,16 +234,6 @@ struct GameView: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
                 guard chapterAnnouncement == chapter else { return }
                 withAnimation(.easeOut(duration: 0.28)) { chapterAnnouncement = nil }
-            }
-        }
-        .onChange(of: model.routeHoneyPickupID) { pickupID in
-            guard pickupID > 0 else { return }
-            withAnimation(.spring(response: 0.32, dampingFraction: 0.70)) {
-                showsRouteHoneyToast = true
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.25) {
-                guard model.routeHoneyPickupID == pickupID else { return }
-                withAnimation(.easeOut(duration: 0.24)) { showsRouteHoneyToast = false }
             }
         }
         .onDisappear {
@@ -346,8 +330,6 @@ struct GameView: View {
                                scoreTarget: scoreIconCenter,
                                onAnswer: { model.select(optionID: $0) },
                                onRewardArrived: model.scoreBubbleArrived,
-                               onBranchHoney: model.collectRouteHoney,
-                               onLanding: model.landed,
                                onEntranceComplete: finishKingEntrance,
                                onLevelCompletionStarted: { showsFinale = true },
                                onLevelCompletionFinished: finishLevelCompletion,
@@ -615,28 +597,6 @@ private struct HoneyChapterAnnouncement: View {
                 .overlay(Capsule().stroke(Color.yellow.opacity(0.7), lineWidth: 1.5))
                 .shadow(color: .black.opacity(0.24), radius: 10, y: 5)
             Spacer().frame(height: isPad ? 130 : 92)
-        }
-        .allowsHitTesting(false)
-    }
-}
-
-private struct RouteHoneyToast: View {
-    let theme: AnimalCharacter
-    let isPad: Bool
-
-    var body: some View {
-        VStack {
-            Spacer()
-            HStack(spacing: 7) {
-                CurrencyIcon(size: isPad ? 21 : 16)
-                Text(verbatim: L(key: "Branch honey +1"))
-                    .font(.system(size: isPad ? 17 : 13, weight: .heavy, design: .rounded))
-            }
-            .foregroundStyle(.white)
-            .padding(.horizontal, 15)
-            .padding(.vertical, 9)
-            .background(theme.deepColor.opacity(0.90), in: Capsule())
-            .padding(.bottom, isPad ? 80 : 54)
         }
         .allowsHitTesting(false)
     }

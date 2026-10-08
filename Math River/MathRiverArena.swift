@@ -146,20 +146,14 @@ struct RiverDecor: Identifiable, Equatable {
 
 // MARK: - Formations
 
-/// Four pots across continuous offsets, lightly staggered for depth.
+/// Four answer stones on one shared decision line. Equal depth is important:
+/// perspective can no longer make a rear option overlap a front option.
 private enum RiverFormation {
-    /// Four broad columns with a light depth stagger. The option order changes
-    /// per round, while the minimum horizontal separation stays predictable.
+    /// The question generator already shuffles option order, so the geometry
+    /// stays fixed and legible from round to round.
     static func slots(for roundNumber: Int) -> [(lateral: CGFloat, extra: CGFloat)] {
-        let extra: CGFloat = 0.02
-        switch roundNumber % 6 {
-        case 0: return [(-0.30, 0), (-0.84, extra), (0.84, extra), (0.30, extra * 2)]
-        case 1: return [(-0.84, 0), (-0.30, extra * 0.85), (0.84, extra * 1.7), (0.30, extra * 2.5)]
-        case 2: return [(0.84, 0), (0.30, extra * 0.85), (-0.84, extra * 1.7), (-0.30, extra * 2.5)]
-        case 3: return [(-0.84, 0), (0.84, extra * 0.7), (0.30, extra * 1.6), (-0.30, extra * 2.4)]
-        case 4: return [(0.30, 0), (0.84, extra * 0.8), (-0.84, extra * 1.6), (-0.30, extra * 2.4)]
-        default: return [(-0.84, 0), (0.84, 0), (-0.30, extra * 1.15), (0.30, extra * 2.2)]
-        }
+        _ = roundNumber
+        return HoneySlideTuning.answerColumnOffsets.map { ($0, 0) }
     }
 }
 
@@ -186,9 +180,6 @@ final class MathRiverArena: ObservableObject {
     @Published private(set) var curveDriftAcceleration: CGFloat = 0
     @Published private(set) var displayLateral: CGFloat = 0
     @Published private(set) var cameraLateral: CGFloat = 0
-    @Published private(set) var activeBranch: Int = 0
-    @Published private(set) var jumpLift: CGFloat = 0
-    @Published private(set) var landingImpact: CGFloat = 0
     @Published private(set) var clock: Double = 0
     @Published private(set) var scroll: CGFloat = 0
     @Published private(set) var currentSlideSpeed: CGFloat = HoneySlideTuning.nominalSlideSpeed
@@ -223,8 +214,6 @@ final class MathRiverArena: ObservableObject {
     var onAnswer: ((UUID) -> Bool)?
     var onRewardArrived: (() -> Void)?
     var onWaveComplete: (() -> Void)?
-    var onBranchHoney: (() -> Void)?
-    var onLanding: (() -> Void)?
     var onTutorialEvent: ((CrabTutorialEvent) -> Void)?
 
     private var loadedRoundID: UUID?
@@ -241,7 +230,6 @@ final class MathRiverArena: ObservableObject {
     private var scoreTarget: CGPoint?
     private var steeringOrigin: CGPoint?
     private var steeringOriginLateral: CGFloat = 0
-    private var lastTrackKind: HoneySegmentKind = .wide
     private var entranceRemaining: Double = 0
     private var entranceCompletion: (() -> Void)?
     private var calmRemaining: Double = 0
@@ -255,7 +243,6 @@ final class MathRiverArena: ObservableObject {
     private var frameRecoveryDuration: CFTimeInterval = 0
     private var qualityChangeCooldown: CFTimeInterval = 0
     private var splashBudget = 0
-    private var rewardedBranchKeys: Set<String> = []
 #if DEBUG
     private var didApplyPreviewPhase = false
     private var previousDiagnosticPosition: HoneyVector3?
@@ -378,9 +365,6 @@ final class MathRiverArena: ObservableObject {
         curveDriftAcceleration = 0
         displayLateral = 0
         cameraLateral = 0
-        activeBranch = 0
-        jumpLift = 0
-        landingImpact = 0
         boatRoll = 0
         boatPitch = 0
         entrance = 1
@@ -390,7 +374,6 @@ final class MathRiverArena: ObservableObject {
         calmness = 0
         isCelebrating = false
         honeyFlowActive = false
-        rewardedBranchKeys.removeAll(keepingCapacity: true)
         isReeling = false
         reelLift = 0
         grabReach = 0
@@ -464,15 +447,11 @@ final class MathRiverArena: ObservableObject {
         let checkpointTravel = (checkpointDistance - scroll)
             / HoneySlideTuning.cameraLookAheadDistance(for: currentSlideSpeed)
         let checkpoint = HoneySlideRoute.verticalSlice.sample(at: checkpointDistance)
-        let checkpointOffsets = checkpoint.answerOffsets
         var pots: [RiverPot] = []
         for (index, option) in options.enumerated() {
             let slot = slots[index % slots.count]
-            let proposedLateral = checkpointOffsets.isEmpty
-                ? slot.lateral
-                : checkpointOffsets[index % checkpointOffsets.count]
-            let lateral = HoneySlideTuning.answerLateral(proposedLateral,
-                                                         trackWidth: checkpoint.width)
+            let lateral = HoneySlideTuning.answerColumnLateral(slot.lateral,
+                                                               trackWidth: checkpoint.width)
             let side: Int
             if lateral < -0.20 { side = 0 }
             else if lateral > 0.20 { side = 1 }
@@ -651,21 +630,6 @@ final class MathRiverArena: ObservableObject {
         let route = HoneySlideRoute.verticalSlice
         let frame = route.frame(at: scroll)
         let sample = frame.sample
-        if sample.kind == .split,
-           sample.localProgress >= HoneySlideTuning.splitCommitProgress,
-           activeBranch == 0 {
-            activeBranch = lateralPosition < 0 ? -1 : 1
-            if isLive {
-                let lap = Int(floor(scroll / route.totalLength))
-                let rewardKey = "\(lap).\(sample.segmentID)"
-                if rewardedBranchKeys.insert(rewardKey).inserted {
-                    onBranchHoney?()
-                    emitSplash(at: project(lateral: displayLateral, travel: 0), honey: true)
-                }
-            }
-        } else if !sample.locksBranch, sample.kind != .split {
-            activeBranch = 0
-        }
 
 #if DEBUG
         if let previewSteering = HoneySlidePreviewMode.steeringInput {
@@ -675,18 +639,6 @@ final class MathRiverArena: ObservableObject {
 #endif
         integrateLateralMotion(dt: dt, frame: frame)
         updateCameraFollow(dt: dt)
-
-        jumpLift = sample.isAir
-            ? CGFloat(sin(Double(sample.localProgress) * .pi)) * HoneySlideTuning.jumpHeight
-            : 0
-        if lastTrackKind == .jump, sample.kind == .landing {
-            landingImpact = 1
-            emitSplash(at: project(lateral: displayLateral, travel: 0), honey: true)
-            onLanding?()
-        } else {
-            landingImpact = max(0, landingImpact - CGFloat(dt / HoneySlideTuning.landingRecoveryDuration))
-        }
-        lastTrackKind = sample.kind
 
         // Surface banking is applied from the projection itself. This is only
         // the small, smoothed suspension/steering response on top of it.
@@ -698,9 +650,7 @@ final class MathRiverArena: ObservableObject {
         boatRoll += (targetRoll - boatRoll) * min(1, dt * 7.5)
         let targetPitch = Double(sample.downhillSlope * 180 / .pi) * 0.22
         boatPitch += (targetPitch - boatPitch) * min(1, dt * 5.5)
-        let landingBounce = sin(Double(landingImpact) * .pi * 2) * Double(landingImpact) * 0.025
         boatBob = CGFloat(sin(clock * 5.2)) * (0.003 + 0.002 * (1 - calmness))
-            - jumpLift - CGFloat(landingBounce)
 
 #if DEBUG
         diagnoseSnap(dt: dt, frame: frame)
@@ -733,34 +683,15 @@ final class MathRiverArena: ObservableObject {
         let sample = frame.sample
         let halfWidth = HoneySlideTuning.worldTrackHalfWidth * sample.width
         let allowedNormalized = HoneySlideTuning.playableLateralLimit(for: sample.width)
-        var minimum = -halfWidth * allowedNormalized
-        var maximum = halfWidth * allowedNormalized
-        if sample.locksBranch, activeBranch < 0 {
-            maximum = -halfWidth * 0.28
-        } else if sample.locksBranch, activeBranch > 0 {
-            minimum = halfWidth * 0.28
-        }
+        let minimum = -halfWidth * allowedNormalized
+        let maximum = halfWidth * allowedNormalized
 
-        var targetNormalized = min(allowedNormalized,
+        let targetNormalized = min(allowedNormalized,
                                    max(-allowedNormalized, steeringTargetLateral))
-        if sample.locksBranch, activeBranch < 0 {
-            targetNormalized = min(-0.28, targetNormalized)
-        } else if sample.locksBranch, activeBranch > 0 {
-            targetNormalized = max(0.28, targetNormalized)
-        }
         steeringTargetLateral = targetNormalized
         let targetPosition = targetNormalized * halfWidth
         let lateralSpeedLimit = HoneySlideTuning.maximumLateralSpeed(for: sample.width)
-
-        let bankingHelpsCurve = sample.banking * frame.curvature > 0
-        let bankCompensation = bankingHelpsCurve
-            ? max(0.38, 1 - abs(sample.banking) * HoneySlideTuning.bankingDriftCompensation)
-            : 1
-        let rawCurveDrift = -frame.curvature * currentSlideSpeed * currentSlideSpeed
-            * HoneySlideTuning.curveDriftStrength * bankCompensation
-        curveDriftAcceleration = min(HoneySlideTuning.maxCurveDriftAcceleration,
-                                     max(-HoneySlideTuning.maxCurveDriftAcceleration,
-                                         rawCurveDrift))
+        curveDriftAcceleration = 0
 
         var remaining = min(max(dt, 0), 1.0 / 30.0)
         while remaining > 0.000_001 {
@@ -778,7 +709,6 @@ final class MathRiverArena: ObservableObject {
                 response * HoneySlideTuning.lateralDrag
             ) * step))
             lateralVelocity += (desiredVelocity - lateralVelocity) * velocityBlend
-            lateralVelocity += curveDriftAcceleration * h
             lateralVelocity = min(lateralSpeedLimit,
                                   max(-lateralSpeedLimit, lateralVelocity))
             lateralPosition += lateralVelocity * h
@@ -1265,17 +1195,7 @@ struct RiverProjection {
         let rightEdgeY: CGFloat
 
         var bandEdges: [(left: CGFloat, right: CGFloat)] {
-            guard track.splitAmount > 0.055 else {
-                return [(center - halfWidth, center + halfWidth)]
-            }
-            let raw = min(max((track.splitAmount - 0.055) / 0.945, 0), 1)
-            let split = raw * raw * (3 - 2 * raw)
-            let branchHalf = halfWidth * (0.50 - 0.06 * split)
-            let offset = halfWidth * (0.50 + 0.06 * split)
-            return [
-                (center - offset - branchHalf, center - offset + branchHalf),
-                (center + offset - branchHalf, center + offset + branchHalf)
-            ]
+            [(center - halfWidth, center + halfWidth)]
         }
     }
 
